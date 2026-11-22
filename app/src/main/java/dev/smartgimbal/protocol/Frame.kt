@@ -7,8 +7,8 @@ package dev.smartgimbal.protocol
  * A5 5A | route (2) | command (1) | flags (2) | length (2, LE) | payload (length) | CRC (2, LE)
  * ```
  *
- * Seen routes: `03 00` joystick and `03 02` request (phone to gimbal), `02 03` reply and
- * `00 FF` broadcast (gimbal to phone). `flags` is not understood yet (`00 00`, `20 00`, `60 00`).
+ * Seen routes: `03 00` joystick and `03 02` request (phone to gimbal), `02 03` reply,
+ * `04 03` button and `00 FF` broadcast (gimbal to phone). `flags` is not understood yet (`00 00`, `20 00`, `60 00`).
  */
 class Frame(
     val route: Int,
@@ -25,6 +25,8 @@ class Frame(
             command == CMD_HOME -> "Home"
             command == CMD_MOTION && payload.size == 1 && payload[0].toInt() == 1 -> "Fahrt läuft?"
             command == CMD_MOTION && payload.size == 1 && payload[0].toInt() == 0 -> "Fahrt fertig?"
+            command == CMD_BUTTON -> ButtonPress.fromFrame(this)?.let { "Taste ${it.label}" } ?: "Taste?"
+            command == CMD_POWER && payload.size == 1 -> "Schaltet ab?"
             else -> "unbekannt"
         }
 
@@ -39,6 +41,10 @@ class Frame(
         const val CMD_HOME = 0x33
         /** Sent by the gimbal around an automatic move such as Home: payload 01, later 00. */
         const val CMD_MOTION = 0x61
+        /** Thumb button on the handle, see [ButtonPress]. */
+        const val CMD_BUTTON = 0x50
+        /** Seen twice (payload 03 and 01), each 8 to 9 s before the gimbal switched itself off. */
+        const val CMD_POWER = 0x62
         const val ROUTE_REPLY = 0x0203
 
         /** Returns null for frames with bad header, CRC or length field. */
@@ -62,11 +68,35 @@ class Frame(
 }
 
 /**
+ * A press of the thumb button on the gimbal's handle (command 0x50, 3 byte payload, first byte
+ * is the kind of press). The gimbal itself does nothing with it; it is meant for the app.
+ * Captured 2026-11-22 on FY_PocketV_3E. The trigger and the power button send no frame of
+ * their own: the gimbal handles them itself.
+ */
+enum class ButtonPress(val code: Int, val label: String) {
+    SHORT(0, "kurz"),
+    LONG(1, "lang"),
+    DOUBLE(2, "doppelt"),
+    ;
+
+    companion object {
+        private const val PAYLOAD_SIZE = 3
+
+        fun fromFrame(frame: Frame): ButtonPress? {
+            if (frame.command != Frame.CMD_BUTTON || frame.payload.size != PAYLOAD_SIZE) return null
+            val code = frame.payload[0].toInt() and 0xFF
+            return entries.firstOrNull { it.code == code }
+        }
+    }
+}
+
+/**
  * Status broadcast by the gimbal about 2.4 times per second (command 0x1E, 8 byte payload):
  * `status | A int16 | B int16 | C int16 | D u8`.
  *
- * Confirmed 2026-11-22: A = tilt, B = roll, C = pan, all in 0.01°. D stays at 79/80
- * (battery or temperature?). Tilt stops at about +27° / -32° in raw A terms.
+ * Confirmed 2026-11-22: A = tilt, B = roll, C = pan, all in 0.01°. D fell from 80 to 70 over a
+ * day of use, so it is very likely the battery level in percent (not yet checked while
+ * charging). Tilt stops at about +27° / -32° in raw A terms.
  */
 data class Telemetry(
     val status: Int,
@@ -84,8 +114,18 @@ data class Telemetry(
     /** Roll in 0.01°; stays near 0 because the gimbal levels it. */
     val roll: Int get() = b
 
+    /** Battery level in percent, see the note on D above. */
+    val batteryPercent: Int get() = d
+
+    /**
+     * True while the trigger (index finger button) is held: the status byte then reads 2 and
+     * returns to its previous value on release. Confirmed 2026-11-22 with two 5 s holds.
+     */
+    val triggerHeld: Boolean get() = status == STATUS_TRIGGER_HELD
+
     companion object {
         const val COMMAND = 0x1E
+        const val STATUS_TRIGGER_HELD = 2
         private const val PAYLOAD_SIZE = 8
 
         fun parse(bytes: ByteArray): Telemetry? {

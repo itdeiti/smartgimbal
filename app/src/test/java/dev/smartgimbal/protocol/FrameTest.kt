@@ -43,6 +43,30 @@ class FrameTest {
     }
 
     @Test
+    fun `captured button frames decode to the kind of press`() {
+        // Captured from FY_PocketV_3E on 2026-11-22: thumb button short, long, double.
+        fun press(hex: String) = ButtonPress.fromFrame(Frame.decode(parseHex(hex))!!)
+        assertEquals(ButtonPress.SHORT, press("A5 5A 04 03 50 00 00 03 00 00 00 00 C7 A5"))
+        assertEquals(ButtonPress.LONG, press("A5 5A 04 03 50 00 00 03 00 01 00 00 F7 92"))
+        assertEquals(ButtonPress.DOUBLE, press("A5 5A 04 03 50 00 00 03 00 02 00 00 A7 CB"))
+        assertNull(ButtonPress.fromFrame(Frame.decode(FeiyuProtocol.home())!!))
+    }
+
+    @Test
+    fun `telemetry carries the battery level`() {
+        val bytes = parseHex("A5 5A 00 FF 1E 00 00 08 00 01 9D F0 05 00 C7 0A 4F 6D 12")
+        assertEquals(79, Telemetry.parse(bytes)!!.batteryPercent)
+    }
+
+    @Test
+    fun `status 2 means the trigger is held`() {
+        val idle = Telemetry(status = 1, a = 0, b = 0, c = 0, d = 75)
+        assertEquals(false, idle.triggerHeld)
+        assertEquals(false, idle.copy(status = 0).triggerHeld)
+        assertEquals(true, idle.copy(status = 2).triggerHeld)
+    }
+
+    @Test
     fun `non telemetry and broken frames are rejected`() {
         assertNull(Telemetry.parse(FeiyuProtocol.home()))
         // Length field says 9 but payload has 8 bytes.

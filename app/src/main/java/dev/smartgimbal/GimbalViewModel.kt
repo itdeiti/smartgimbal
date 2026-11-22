@@ -4,8 +4,11 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.smartgimbal.ble.LinkState
+import android.content.Context
+import dev.smartgimbal.camera.PhotoTimer
 import dev.smartgimbal.camera.ZoomLevel
 import dev.smartgimbal.gimbal.GimbalSession
+import dev.smartgimbal.protocol.ButtonPress
 import dev.smartgimbal.tracking.CameraFovReader
 import dev.smartgimbal.tracking.FaceFrame
 import dev.smartgimbal.tracking.FacePipeline
@@ -23,6 +26,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -36,6 +40,13 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
     val session = GimbalSession(app, viewModelScope)
     val faces = FacePipeline()
     val trackingSettings = TrackingSettings(app)
+
+    /** Self-timer for photos (off, 3 s, 10 s), kept across restarts. */
+    val photoTimer = PersistedParams(
+        prefs = app.getSharedPreferences("camera", Context.MODE_PRIVATE),
+        load = { prefs -> PhotoTimer.entries.firstOrNull { it.name == prefs.getString(KEY_PHOTO_TIMER, null) } ?: PhotoTimer.S3 },
+        save = { timer -> putString(KEY_PHOTO_TIMER, timer.name) },
+    )
 
     private val _trackingEnabled = MutableStateFlow(false)
     val trackingEnabled: StateFlow<Boolean> = _trackingEnabled.asStateFlow()
@@ -52,6 +63,9 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
     private val tracker = FaceTracker()
     private var lastLearnedLimits: Pair<Double?, Double?> = null to null
 
+    /** Analysis thread only. */
+    private var pausedByTrigger = false
+
     @Volatile private var recordingActive = false
     @Volatile private var photoCountdownActive = false
 
@@ -63,9 +77,13 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
     @Volatile private var zoomRatio = 1.0
     @Volatile private var maxZoom = 8f
 
-    /** Camera commands (record, stop, photo) go to the camera screen, which owns the camera. */
+    /** Camera commands (record, stop, photo) from voice or the gimbal's button go to the camera screen, which owns the camera. */
     private val _cameraCommands = MutableSharedFlow<VoiceCommand>(extraBufferCapacity = 4)
     val cameraCommands: SharedFlow<VoiceCommand> = _cameraCommands.asSharedFlow()
+
+    /** The gimbal's thumb button asked to switch between front and rear camera. */
+    private val _cameraToggles = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val cameraToggles: SharedFlow<Unit> = _cameraToggles.asSharedFlow()
 
     val voice = VoiceControl(
         context = app,
@@ -86,6 +104,23 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         faces.frameListener = ::onFaceFrame
+        viewModelScope.launch { session.buttonPresses.collect(::onGimbalButton) }
+    }
+
+    /**
+     * Thumb button on the gimbal: short = photo, long = start recording, double = switch camera.
+     * While a recording or the photo countdown runs, a short or long press stops it and a double
+     * press does nothing (no camera switch while the camera is busy, as on screen).
+     * The camera screen carries the actions out, so nothing happens while another screen is open.
+     */
+    private fun onGimbalButton(press: ButtonPress) {
+        val busy = recordingActive || photoCountdownActive
+        AppLog.d { "BUTTON $press busy=$busy" }
+        when (press) {
+            ButtonPress.SHORT -> _cameraCommands.tryEmit(if (busy) VoiceCommand.STOP else VoiceCommand.PHOTO)
+            ButtonPress.LONG -> _cameraCommands.tryEmit(if (busy) VoiceCommand.STOP else VoiceCommand.START_RECORDING)
+            ButtonPress.DOUBLE -> if (!busy) _cameraToggles.tryEmit(Unit)
+        }
     }
 
     /** The camera screen reports whether a recording is running (voice commands depend on it). */
@@ -149,6 +184,23 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
         if (resetTracker.getAndSet(false)) tracker.reset()
         if (!_trackingEnabled.value || session.client.state.value != LinkState.READY) return
 
+        // Holding the trigger is the user taking over on the handle: stand back instead of
+        // steering against it, and start fresh on release.
+        if (session.triggerHeld.value) {
+            if (!pausedByTrigger) {
+                pausedByTrigger = true
+                session.setTrackerCommand(null)
+                tracker.reset()
+                _trackingOutput.value = null
+                AppLog.d { "TRACKING paused, trigger held" }
+            }
+            return
+        }
+        if (pausedByTrigger) {
+            pausedByTrigger = false
+            AppLog.d { "TRACKING resumed" }
+        }
+
         val setup = camera
         val tiltDeg = session.telemetry.value?.let { it.tilt / 100.0 }
         // Faces arrive in display coordinates; the front preview is mirrored, the tracker's
@@ -177,6 +229,10 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
                 tiltDeg?.let { "%.1f".format(Locale.ROOT, it) } ?: "-",
             )
         }
+    }
+
+    private companion object {
+        const val KEY_PHOTO_TIMER = "photoTimer"
     }
 
     override fun onCleared() {

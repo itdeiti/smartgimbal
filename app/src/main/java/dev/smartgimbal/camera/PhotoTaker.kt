@@ -26,7 +26,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 data class PhotoState(
-    /** Seconds left on the self-timer (3, 2, 1, then 0 while shooting), null when idle. */
+    /** Seconds left on the self-timer (… 2, 1, then 0 while shooting), null when idle. */
     val countdown: Int? = null,
     /** Short note after a photo, e.g. where it was saved. */
     val message: String? = null,
@@ -36,8 +36,9 @@ data class PhotoState(
  * Photo with a self-timer, without touching the video setup.
  *
  * The camera runs preview + video (4K needs that pair alone). For a photo the controller switches
- * to image capture at the start of the countdown, so the rebind is hidden in the 3 seconds, takes
- * the picture at 0 and switches back to video afterwards. Main thread only; never used while a
+ * to image capture at the start of the countdown, so the rebind is hidden in the countdown, takes
+ * the picture at 0 and switches back to video afterwards. Without a countdown the picture simply
+ * waits for the rebind. Main thread only; never used while a
  * recording runs (the voice parser and the UI prevent it).
  */
 class PhotoTaker(private val context: Context) {
@@ -50,15 +51,15 @@ class PhotoTaker(private val context: Context) {
     val isCountingDown: Boolean get() = job?.isActive == true
 
     /**
-     * Starts the self-timer. [zoomRatio] is re-applied after each mode switch, because the
-     * controller rebinds the camera.
+     * Takes a photo after [countdownSeconds] (0 = at once). [zoomRatio] is re-applied after each
+     * mode switch, because the controller rebinds the camera.
      */
-    fun start(scope: CoroutineScope, controller: CameraController, zoomRatio: () -> Float) {
+    fun start(scope: CoroutineScope, controller: CameraController, countdownSeconds: Int, zoomRatio: () -> Float) {
         if (isCountingDown) return
         job = scope.launch {
             try {
                 switchTo(CameraController.IMAGE_CAPTURE, controller, zoomRatio)
-                for (s in COUNTDOWN_SECONDS downTo 1) {
+                for (s in countdownSeconds downTo 1) {
                     _state.value = PhotoState(countdown = s)
                     vibrate(if (s == 1) LONG_TICK_MS else SHORT_TICK_MS)
                     delay(1_000)
@@ -123,7 +124,6 @@ class PhotoTaker(private val context: Context) {
         context.vibrate(VibrationEffect.createOneShot(millis, VibrationEffect.DEFAULT_AMPLITUDE))
 
     private companion object {
-        const val COUNTDOWN_SECONDS = 3
         const val SHORT_TICK_MS = 40L
         const val LONG_TICK_MS = 120L
     }

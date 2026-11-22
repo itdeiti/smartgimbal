@@ -28,6 +28,7 @@ A5 5A | route (2) | command (1) | flags (2) | length (2, LE) | payload (length) 
 | `03 00` | phone → gimbal, joystick |
 | `03 02` | phone → gimbal, request |
 | `02 03` | gimbal → phone, reply |
+| `04 03` | gimbal → phone, button |
 | `00 FF` | gimbal → phone, broadcast |
 
 ## Commands
@@ -37,6 +38,8 @@ A5 5A | route (2) | command (1) | flags (2) | length (2, LE) | payload (length) 
 | `0E` | Joystick (speed). Payload `00 XX XX YY YY`, X/Y signed int16 LE. Send continuously (20 Hz works well) and send zero to stop. |
 | `33` | Return to home. Request payload `02`. The gimbal replies on route `02 03`, flags `60 00`, echoing the payload. |
 | `61` | Apparently motion state after home: payload `01` while moving, `00` when done. |
+| `50` | Thumb button on the handle, payload `KK 00 00`: `00` short press, `01` long press, `02` double press. The gimbal does nothing with it itself. |
+| `62` | Announces power-off: seen twice (payload `03` and `01`), each 8 to 9 s before the link dropped. |
 | `1E` | Telemetry broadcast at about 2.4 Hz, payload `01 \| A int16 \| B int16 \| C int16 \| D u8`. |
 
 Example frames:
@@ -50,7 +53,8 @@ A5 5A 00 FF 1E 00 00 08 00 01 9D F0 05 00 C7 0A 4F 6D 12   telemetry
 ## Telemetry
 
 - **Fields:** A = tilt, B = roll, C = pan, each in 0.01°.
-- **D:** goes 80 → 77 over a session, probably battery percent.
+- **D:** very likely the battery level in percent: it fell from 80 to 70 over a day of use and jitters by ±1. Not yet checked while charging.
+- **Status byte** (first payload byte): `2` while the trigger is held (confirmed with two 5 s holds); on release it returns to its previous value. That value is `1` after power-on and `0` after a press of the power button, probably the gimbal mode; which mode is which is not confirmed.
 - **Pan:** wraps at ±180°. Normalise differences to −180…+180.
 - **Pan in follow mode:** pan follows the handle, so "home" centres relative to the handle, not to an absolute angle.
 - **Tilt end stops:** the mechanical stop upwards was 25–27°, not the ~32° seen once in raw values. The app learns the stop when tilt stops moving under command.
@@ -70,6 +74,11 @@ For face tracking that means:
 - **Linear range:** roughly linear for small values, about 0.22°/s per joystick unit (51 ≈ 11°/s, 200 ≈ 45°/s).
 - **Saturation:** around 60°/s. At 1000 the gimbal keeps moving for a moment after a stop frame.
 - **Smoothing:** the gimbal smooths speed changes itself, with a time constant of about 0.25 s. A controller has to brake early (see the PD gains in [`TrackingParams`](../app/src/main/java/dev/smartgimbal/tracking/TrackingParams.kt)).
+
+## Buttons
+
+- **Thumb button:** sends command `50` (see above); free for the app to use.
+- **Trigger and power button:** send no frame of their own. The gimbal handles them itself (lock, recentre, mode, power); the app only sees the status byte (trigger held = `2`) and the motion frames (`61`).
 
 ## Unknown
 
