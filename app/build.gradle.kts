@@ -13,8 +13,8 @@ android {
         // Pixel 7 ships with Android 13 (API 33); this lets us use the API 33 BLE write/notify calls.
         minSdk = 33
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
 
         // Only 64-bit ARM (Pixel 7 and every current phone). Vosk and ML Kit otherwise ship native
         // libraries for seven ABIs, which made the APK 166 MB.
