@@ -116,6 +116,10 @@ private val TIPS = listOf(
         "erkennt den Anschlag und drückt nicht weiter dagegen.",
     "Weitwinkel und Zoom" to
         "0,7× nutzt die Ultraweitwinkel-Kamera (nur hinten), 2× und 4× sind Zoom. Das Tracking passt sich an.",
+    "Töne" to
+        "Der Countdown tickt jede Sekunde (letzte Sekunde länger), beim Foto klickt der Auslöser, ein Zoomwechsel " +
+        "gibt einen kurzen Ton. Lautstärke über die Medienlautstärke. Während einer Videoaufnahme bleibt der " +
+        "Zoom-Ton aus, damit er nicht auf der Tonspur landet.",
     "Dateien" to "Videos landen in Movies/SmartGimbal, Fotos in Pictures/SmartGimbal.",
     "Mikrofon" to
         "Ohne Mikrofon-Berechtigung gibt es keine Sprachsteuerung und keinen Ton in Videos. Die Sprache und die " +

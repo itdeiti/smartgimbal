@@ -77,6 +77,7 @@ import dev.smartgimbal.OPTIONAL_PERMISSIONS
 import dev.smartgimbal.REQUIRED_PERMISSIONS
 import dev.smartgimbal.hasAll
 import dev.smartgimbal.tracking.FacePipeline
+import dev.smartgimbal.camera.FeedbackSounds
 import dev.smartgimbal.camera.PhotoTaker
 import dev.smartgimbal.camera.PhotoTimer
 import dev.smartgimbal.camera.ZoomLevel
@@ -146,7 +147,8 @@ private fun CameraContent(
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     val recorder = remember { VideoRecorder(context) }
     val rec by recorder.state.collectAsStateWithLifecycle()
-    val photo = remember { PhotoTaker(context) }
+    val sounds = remember { FeedbackSounds() }
+    val photo = remember { PhotoTaker(context, sounds) }
     val photoState by photo.state.collectAsStateWithLifecycle()
     val zoomLevel by vm.zoomLevel.collectAsStateWithLifecycle()
     val photoTimer by vm.photoTimer.params.collectAsStateWithLifecycle()
@@ -183,6 +185,7 @@ private fun CameraContent(
             recorder.stop()
             controller.unbind()
             grabber.release()
+            sounds.release()
         }
     }
     // Voice: listen only while the camera screen is in the foreground.
@@ -206,7 +209,12 @@ private fun CameraContent(
     val currentOnToggleCamera by rememberUpdatedState(onToggleCamera)
     LaunchedEffect(Unit) { vm.cameraToggles.collect { currentOnToggleCamera() } }
     // Wide angle = the logical camera's minimum zoom ratio (0.67 on the Pixel 7 = ultrawide lens).
+    val soundedZoom = remember { arrayOfNulls<ZoomLevel>(1) }
     LaunchedEffect(zoomLevel, useFront) {
+        // A blip when the step changes (not on start or a camera switch), and never into a
+        // running recording's sound track.
+        if (soundedZoom[0] != null && soundedZoom[0] != zoomLevel && !recorder.isRecording) sounds.zoomChanged()
+        soundedZoom[0] = zoomLevel
         val (ratio, max) = applyZoom(controller, zoomLevel)
         appliedZoom = ratio
         vm.setZoomRatio(ratio.toDouble(), max)
