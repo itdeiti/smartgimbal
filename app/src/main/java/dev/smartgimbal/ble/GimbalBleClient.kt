@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import androidx.core.content.edit
+import dev.smartgimbal.AppLog
 import dev.smartgimbal.protocol.FeiyuProtocol
 import dev.smartgimbal.protocol.toHex
 import kotlinx.coroutines.CompletableDeferred
@@ -118,6 +119,11 @@ class GimbalBleClient(
             val name = result.scanRecord?.deviceName ?: result.device.name ?: return
             if (!name.startsWith(FeiyuProtocol.DEVICE_NAME_PREFIX)) return
             val found = FoundDevice(name, result.device.address, result.rssi)
+            // A ScanFilter cannot match a name prefix, only a service UUID. This line shows what
+            // the gimbal advertises, to decide whether such a filter is possible.
+            if (_devices.value.none { it.address == found.address }) {
+                AppLog.d { "SCAN ${found.name} services=${result.scanRecord?.serviceUuids} connectable=${result.isConnectable}" }
+            }
             _devices.update { list ->
                 (list.filterNot { it.address == found.address } + found).sortedBy { it.name }
             }
@@ -351,7 +357,10 @@ class GimbalBleClient(
         if (logIt) log(LogEntry.of(LogEntry.Kind.TX, frame.toHex()))
         when (status) {
             BluetoothGatt.GATT_SUCCESS -> true
-            null -> true // no callback in time; the frame was handed to the stack anyway
+            // No callback in time; the frame was handed to the stack anyway. The stack refuses
+            // further writes (busy) until that callback arrives, so it cannot be mistaken for
+            // the answer to a later write.
+            null -> true
             else -> {
                 log(LogEntry.error("Write fehlgeschlagen: status=$status"))
                 false
