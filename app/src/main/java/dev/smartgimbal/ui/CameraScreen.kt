@@ -66,6 +66,8 @@ import dev.smartgimbal.camera.PreviewFrameGrabber
 import dev.smartgimbal.camera.RecordingState
 import dev.smartgimbal.camera.VideoRecorder
 import dev.smartgimbal.gimbal.GimbalSession
+import dev.smartgimbal.voice.VoiceCommand
+import dev.smartgimbal.voice.VoiceEngine
 
 /** Main screen: full-screen camera preview with gimbal status and controls on top. */
 @Composable
@@ -118,6 +120,7 @@ private fun CameraContent(
     val session = vm.session
     val faces = vm.faces
     val trackingEnabled by vm.trackingEnabled.collectAsStateWithLifecycle()
+    val voiceFeedback by vm.voice.feedback.collectAsStateWithLifecycle()
     val gimbalState by session.client.state.collectAsStateWithLifecycle()
 
     val frame by faces.frame.collectAsStateWithLifecycle()
@@ -151,8 +154,18 @@ private fun CameraContent(
     }
     // Voice: listen only while the camera screen is in the foreground.
     LifecycleResumeEffect(Unit) {
-        vm.startListening()
-        onPauseOrDispose { vm.stopListening() }
+        vm.voice.onScreenResumed()
+        onPauseOrDispose { vm.voice.onScreenPaused() }
+    }
+    LaunchedEffect(rec.recording) { vm.setRecording(rec.recording) }
+    LaunchedEffect(controller) {
+        vm.recordingCommands.collect { command ->
+            when (command) {
+                VoiceCommand.START_RECORDING -> recorder.start(controller)
+                VoiceCommand.STOP -> recorder.stop()
+                else -> Unit
+            }
+        }
     }
     // Feeds face detection with preview copies; skips frames while the detector is busy.
     LaunchedEffect(previewView, useFront) {
@@ -224,6 +237,25 @@ private fun CameraContent(
             OverlayButton("Debug", enabled = !rec.recording, onClick = openDebug)
         }
 
+        voiceFeedback?.let { note ->
+            LaunchedEffect(note) {
+                delay(2_500)
+                vm.voice.clearFeedback()
+            }
+            Text(
+                note,
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .systemBarsPadding()
+                    .padding(top = 72.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF1565C0).copy(alpha = 0.85f))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            )
+        }
+
         rec.message?.let { message ->
             LaunchedEffect(message) {
                 delay(4_000)
@@ -254,6 +286,7 @@ private fun CameraContent(
                 onClick = onToggleCamera,
             )
             RecordButton(recording = rec.recording, onClick = { recorder.toggle(controller) })
+            VoiceButton(vm)
             OverlayButton(
                 text = if (trackingEnabled) "Tracking an" else "Tracking aus",
                 active = trackingEnabled,
@@ -343,6 +376,27 @@ private suspend fun logVideoCapabilities(controller: LifecycleCameraController) 
         }
         delay(100)
     }
+}
+
+/** Voice control on/off, with the model and permission state in the label. */
+@Composable
+private fun VoiceButton(vm: GimbalViewModel) {
+    val params by vm.voice.settings.params.collectAsStateWithLifecycle()
+    val engine by vm.voice.engineState.collectAsStateWithLifecycle()
+    val listening by vm.voice.listening.collectAsStateWithLifecycle()
+    val (text, enabled) = when {
+        !vm.voice.hasMicPermission -> "Sprache: kein Mikro" to false
+        engine == VoiceEngine.State.LOADING || engine == VoiceEngine.State.IDLE -> "Sprache lädt …" to false
+        engine == VoiceEngine.State.FAILED -> "Sprache: Fehler" to false
+        params.enabled -> "Sprache an" to true
+        else -> "Sprache aus" to true
+    }
+    OverlayButton(
+        text = text,
+        active = params.enabled && listening,
+        enabled = enabled,
+        onClick = { vm.voice.setEnabled(!params.enabled) },
+    )
 }
 
 /** Red dot to start; while recording a smaller red square to stop. */

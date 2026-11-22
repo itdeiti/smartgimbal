@@ -29,6 +29,7 @@ fun SmartGimbalApp(vm: GimbalViewModel = viewModel()) {
             DebugScreen(
                 session = vm.session,
                 trackingSettings = vm.trackingSettings,
+                voice = vm.voice,
                 onBack = { screen = Screen.CAMERA },
             )
         }

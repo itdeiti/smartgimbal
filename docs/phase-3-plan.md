@@ -40,7 +40,7 @@ Das ist deutlich mehr Code, funktioniert aber unabhängig von der Mikrofon-Prior
 
 ## Erkennung
 
-- **Feste Grammatik:** `["aufnahme starten", "stopp", "tracking an", "tracking aus", "kamera zurück", "[unk]"]`. Alles andere landet in `[unk]`. Das senkt Fehlauslöser und Rechenlast.
+- **Feste Grammatik:** `["aufnahme starten", "stopp", "aufnahme stopp", "aufnahme stoppen", "tracking an", "tracking aus", "kamera zurück", "[unk]"]`. Alles andere landet in `[unk]`. Das senkt Fehlauslöser und Rechenlast.
 - **Nur ganze Befehle:** Vosk baut aus der Grammatik ein Bigramm-Modell und liefert auch einzelne Wörter wie „starten". Ein Befehl zählt nur, wenn der erkannte Text genau einem der Befehle entspricht.
 - **Konfidenz:** `setWords(true)` liefert eine Konfidenz pro Wort. Ein Befehl zählt nur, wenn jedes Wort mindestens den Schwellwert erreicht (Start 0,7, im Debug-Screen einstellbar).
 - **Zustand und Sperre:**
@@ -61,6 +61,13 @@ Das ist deutlich mehr Code, funktioniert aber unabhängig von der Mikrofon-Prior
    - Befehle in Ruhe und mit Hintergrundgeräusch, aus 1 bis 3 m Abstand, auch während einer Aufnahme.
    - Fehlauslöser über 2 Minuten normales Reden.
    - Tonspur der Aufnahme anhören.
+
+## Ergebnis Sprachtest (2026-11-22)
+
+- **Erkannt:** Alle Befehle wurden erkannt, ausgeführte meist mit Konfidenz 1,00, auch während der Aufnahme.
+- **Zustand:** Befehle, die nicht zum Zustand passten, wurden korrekt ignoriert und angezeigt (zum Beispiel „Stopp" ohne Aufnahme).
+- **Tonspur:** Die Stimme ist gut hörbar, das gemeinsame Mikrofon funktioniert also auch im Alltag.
+- **„Aufnahme stoppen":** Weil das nicht in der Grammatik stand, erkannte Vosk das nächstähnliche Wort, „starten". Seitdem gibt es für Stopp zusätzlich „aufnahme stopp" und „aufnahme stoppen", alle Wörter stehen im Vokabular.
 
 ## Risiken
 
