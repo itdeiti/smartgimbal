@@ -55,9 +55,9 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import dev.smartgimbal.GimbalViewModel
 import dev.smartgimbal.ble.FoundDevice
+import dev.smartgimbal.gimbal.GimbalSession
+import dev.smartgimbal.tracking.TrackingSettings
 import dev.smartgimbal.ble.LinkState
 import dev.smartgimbal.ble.LogEntry
 import dev.smartgimbal.protocol.Telemetry
@@ -75,19 +75,21 @@ private fun hasBlePermissions(context: Context) = BLE_PERMISSIONS.all {
     context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
 }
 
+/** Protocol tools from phase 1: connect, D-pad, telemetry, raw frames, log. */
 @Composable
-fun GimbalScreen(vm: GimbalViewModel = viewModel()) {
+fun DebugScreen(session: GimbalSession, trackingSettings: TrackingSettings, onBack: () -> Unit) {
     val context = LocalContext.current
-    val state by vm.client.state.collectAsStateWithLifecycle()
-    val devices by vm.client.devices.collectAsStateWithLifecycle()
-    val connectedName by vm.client.connectedName.collectAsStateWithLifecycle()
-    val strength by vm.strength.collectAsStateWithLifecycle()
-    val logJoystick by vm.logJoystick.collectAsStateWithLifecycle()
-    val log by vm.log.collectAsStateWithLifecycle()
-    val telemetry by vm.telemetry.collectAsStateWithLifecycle()
-    val telemetryZero by vm.telemetryZero.collectAsStateWithLifecycle()
-    val telemetryCount by vm.telemetryCount.collectAsStateWithLifecycle()
-    val logTelemetry by vm.logTelemetry.collectAsStateWithLifecycle()
+    val state by session.client.state.collectAsStateWithLifecycle()
+    val devices by session.client.devices.collectAsStateWithLifecycle()
+    val connectedName by session.client.connectedName.collectAsStateWithLifecycle()
+    val strength by session.manualStrength.collectAsStateWithLifecycle()
+    val logJoystick by session.logJoystick.collectAsStateWithLifecycle()
+    val log by session.log.collectAsStateWithLifecycle()
+    val telemetry by session.telemetry.collectAsStateWithLifecycle()
+    val telemetryZero by session.telemetryZero.collectAsStateWithLifecycle()
+    val telemetryCount by session.telemetryCount.collectAsStateWithLifecycle()
+    val logTelemetry by session.logTelemetry.collectAsStateWithLifecycle()
+    val trackingParams by trackingSettings.params.collectAsStateWithLifecycle()
 
     var hasPermissions by remember { mutableStateOf(hasBlePermissions(context)) }
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -95,11 +97,11 @@ fun GimbalScreen(vm: GimbalViewModel = viewModel()) {
     ) { result -> hasPermissions = result.values.all { it } }
     val enableBtLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
-    ) { if (vm.client.isBluetoothEnabled) vm.client.startScan() }
+    ) { if (session.client.isBluetoothEnabled) session.client.startScan() }
 
     val onScan = {
-        if (vm.client.isBluetoothEnabled) {
-            vm.client.startScan()
+        if (session.client.isBluetoothEnabled) {
+            session.client.startScan()
         } else {
             enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
         }
@@ -112,7 +114,10 @@ fun GimbalScreen(vm: GimbalViewModel = viewModel()) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Text("SmartGimbal · BLE-Test", style = MaterialTheme.typography.headlineSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onBack) { Text("← Kamera") }
+                    Text("Debug · BLE", style = MaterialTheme.typography.headlineSmall)
+                }
             }
 
             if (!hasPermissions) {
@@ -134,8 +139,8 @@ fun GimbalScreen(vm: GimbalViewModel = viewModel()) {
                     state = state,
                     connectedName = connectedName,
                     onScan = onScan,
-                    onStopScan = vm.client::stopScan,
-                    onDisconnect = vm.client::disconnect,
+                    onStopScan = session.client::stopScan,
+                    onDisconnect = session.client::disconnect,
                 )
             }
 
@@ -149,7 +154,7 @@ fun GimbalScreen(vm: GimbalViewModel = viewModel()) {
                     }
                 }
                 items(devices, key = { it.address }) { device ->
-                    DeviceRow(device) { vm.client.connect(device) }
+                    DeviceRow(device) { session.client.connect(device) }
                 }
             }
 
@@ -157,10 +162,10 @@ fun GimbalScreen(vm: GimbalViewModel = viewModel()) {
                 ControlPanel(
                     enabled = state == LinkState.READY,
                     strength = strength,
-                    onStrength = vm::setStrength,
-                    onPress = vm::press,
-                    onRelease = vm::release,
-                    onHome = vm::home,
+                    onStrength = session::setManualStrength,
+                    onPress = session::pressManual,
+                    onRelease = session::releaseManual,
+                    onHome = session::home,
                 )
             }
 
@@ -170,13 +175,21 @@ fun GimbalScreen(vm: GimbalViewModel = viewModel()) {
                     zero = telemetryZero,
                     count = telemetryCount,
                     logTelemetry = logTelemetry,
-                    onZero = vm::zeroTelemetry,
-                    onLogTelemetry = vm::setLogTelemetry,
+                    onZero = session::zeroTelemetry,
+                    onLogTelemetry = session::setLogTelemetry,
                 )
             }
 
             item {
-                RawSender(enabled = state == LinkState.READY, onSend = vm::sendRaw)
+                TuningCard(
+                    params = trackingParams,
+                    onChange = trackingSettings::update,
+                    onReset = trackingSettings::resetToDefaults,
+                )
+            }
+
+            item {
+                RawSender(enabled = state == LinkState.READY, onSend = session::sendRaw)
             }
 
             item {
@@ -185,8 +198,8 @@ fun GimbalScreen(vm: GimbalViewModel = viewModel()) {
                     Text("Log", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                     Text("Joystick-TX", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.width(4.dp))
-                    Switch(checked = logJoystick, onCheckedChange = vm::setLogJoystick)
-                    TextButton(onClick = vm::clearLog) { Text("Leeren") }
+                    Switch(checked = logJoystick, onCheckedChange = session::setLogJoystick)
+                    TextButton(onClick = session::clearLog) { Text("Leeren") }
                 }
             }
 
@@ -269,7 +282,7 @@ private fun ControlPanel(
             Slider(
                 value = strength.toFloat(),
                 onValueChange = { onStrength(it.roundToInt()) },
-                valueRange = 10f..GimbalViewModel.MAX_STRENGTH.toFloat(),
+                valueRange = 10f..GimbalSession.MAX_STRENGTH.toFloat(),
             )
         }
     }

@@ -4,193 +4,110 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import dev.smartgimbal.ble.GimbalBleClient
-import dev.smartgimbal.ble.LogEntry
-import dev.smartgimbal.protocol.FeiyuProtocol
-import dev.smartgimbal.protocol.Frame
-import dev.smartgimbal.protocol.FrameAssembler
-import dev.smartgimbal.protocol.Telemetry
-import dev.smartgimbal.protocol.parseHex
-import dev.smartgimbal.protocol.toHex
-import kotlinx.coroutines.delay
+import dev.smartgimbal.ble.LinkState
+import dev.smartgimbal.gimbal.GimbalSession
+import dev.smartgimbal.tracking.CameraFovReader
+import dev.smartgimbal.tracking.FaceFrame
+import dev.smartgimbal.tracking.FacePipeline
+import dev.smartgimbal.tracking.FaceTracker
+import dev.smartgimbal.tracking.Fov
+import dev.smartgimbal.tracking.NormBox
+import dev.smartgimbal.tracking.TrackingOutput
+import dev.smartgimbal.tracking.TrackingSettings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import java.util.Locale
 
+/**
+ * Activity-scoped owner of the long-lived parts: the [GimbalSession] (BLE link survives screen
+ * switches), the [FacePipeline] (detector is not rebuilt each time the camera screen opens) and
+ * the face tracker that connects the two.
+ */
 class GimbalViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val _log = MutableStateFlow<List<LogEntry>>(emptyList())
-    val log: StateFlow<List<LogEntry>> = _log.asStateFlow()
+    val session = GimbalSession(app, viewModelScope)
+    val faces = FacePipeline()
+    val trackingSettings = TrackingSettings(app)
 
-    val client = GimbalBleClient(app, ::appendLog, ::onRx)
+    private val _trackingEnabled = MutableStateFlow(false)
+    val trackingEnabled: StateFlow<Boolean> = _trackingEnabled.asStateFlow()
 
-    /** Latest telemetry frame from the gimbal. */
-    private val _telemetry = MutableStateFlow<Telemetry?>(null)
-    val telemetry: StateFlow<Telemetry?> = _telemetry.asStateFlow()
+    /** Latest tracker output for the overlay, null while tracking is off. */
+    private val _trackingOutput = MutableStateFlow<TrackingOutput?>(null)
+    val trackingOutput: StateFlow<TrackingOutput?> = _trackingOutput.asStateFlow()
 
-    /** Reference for the delta columns, set with [zeroTelemetry]. */
-    private val _telemetryZero = MutableStateFlow<Telemetry?>(null)
-    val telemetryZero: StateFlow<Telemetry?> = _telemetryZero.asStateFlow()
+    private class CameraSetup(val front: Boolean, val fov: Fov)
 
-    private val _telemetryCount = MutableStateFlow(0)
-    val telemetryCount: StateFlow<Int> = _telemetryCount.asStateFlow()
-
-    /** Telemetry arrives about 2.4 times per second; hidden from the log by default. */
-    private val _logTelemetry = MutableStateFlow(false)
-    val logTelemetry: StateFlow<Boolean> = _logTelemetry.asStateFlow()
-
-    /** Magnitude sent for X/Y while a direction is held. Useful range not known yet. */
-    private val _strength = MutableStateFlow(DEFAULT_STRENGTH)
-    val strength: StateFlow<Int> = _strength.asStateFlow()
-
-    /** Joystick frames go out at 20 Hz and would flood the log, so they are hidden by default. */
-    private val _logJoystick = MutableStateFlow(false)
-    val logJoystick: StateFlow<Boolean> = _logJoystick.asStateFlow()
-
-    private val assembler = FrameAssembler()
-
-    /** Held direction as (right, up), each -1, 0 or 1. */
-    private val direction = MutableStateFlow(0 to 0)
+    @Volatile private var camera = CameraSetup(front = false, fov = Fov.DEFAULT)
+    @Volatile private var resetTracker = false
+    private val tracker = FaceTracker()
+    private var lastLearnedLimits: Pair<Double?, Double?> = null to null
 
     init {
-        viewModelScope.launch { joystickLoop() }
+        faces.frameListener = ::onFaceFrame
     }
 
-    /** [right] and [up] are -1, 0 or 1 in operator terms, see [FeiyuProtocol.move]. */
-    fun press(right: Int, up: Int) {
-        direction.value = right to up
-        val s = _strength.value
-        appendLog(LogEntry.info("Taste ${arrowFor(right, up)} gedrückt (panRight=${right * s}, tiltUp=${up * s})"))
+    /** Called by the camera screen whenever the active camera changes. */
+    fun setCamera(front: Boolean) {
+        val fov = CameraFovReader.read(getApplication(), front) ?: Fov.DEFAULT
+        camera = CameraSetup(front, fov)
+        resetTracker = true
+        Log.d(GimbalSession.LOG_TAG, "CAMERA front=$front fov=%.1f/%.1f".format(Locale.ROOT, fov.longDeg, fov.shortDeg))
     }
 
-    fun release() {
-        direction.value = 0 to 0
-        appendLog(LogEntry.info("Taste losgelassen"))
-    }
-
-    fun zeroTelemetry() {
-        _telemetryZero.value = _telemetry.value
-        appendLog(LogEntry.info("Nullpunkt gesetzt: ${_telemetry.value}"))
-    }
-
-    fun setLogTelemetry(enabled: Boolean) {
-        _logTelemetry.value = enabled
-    }
-
-    /** Called on a binder thread for every RX notification; frames may span notifications. */
-    private fun onRx(chunk: ByteArray) {
-        val pieces = synchronized(assembler) { assembler.feed(chunk) }
-        pieces.forEach(::handlePiece)
-    }
-
-    private fun handlePiece(piece: FrameAssembler.Piece) {
-        val bytes = piece.bytes
-        if (piece is FrameAssembler.Piece.Garbage) {
-            appendLog(LogEntry.of(LogEntry.Kind.RX, "${bytes.toHex()}  [verworfen]"))
-            return
+    fun setTrackingEnabled(enabled: Boolean) {
+        _trackingEnabled.value = enabled
+        resetTracker = true
+        if (!enabled) {
+            session.setTrackerCommand(null)
+            _trackingOutput.value = null
         }
-        val frame = Frame.decode(bytes)
-        if (frame == null) {
-            appendLog(LogEntry.of(LogEntry.Kind.RX, "${bytes.toHex()}  [Länge passt nicht]"))
-            return
+        Log.d(GimbalSession.LOG_TAG, "TRACKING ${if (enabled) "an" else "aus"}")
+    }
+
+    /** Runs on the analysis thread for every frame. */
+    private fun onFaceFrame(frame: FaceFrame) {
+        if (resetTracker) {
+            tracker.reset()
+            resetTracker = false
         }
-        val telemetry = Telemetry.fromFrame(frame)
-        if (telemetry != null) {
-            _telemetry.value = telemetry
-            _telemetryCount.update { it + 1 }
-            // Always in logcat so test runs can be analysed; in the UI log only on request.
-            Log.d(
-                LOG_TAG,
-                "TELEM pan=${telemetry.pan} tilt=${telemetry.tilt} roll=${telemetry.roll} d=${telemetry.d} s=${telemetry.status}",
-            )
-            if (_logTelemetry.value) appendLog(LogEntry.of(LogEntry.Kind.RX, bytes.toHex()), mirror = false)
-            return
+        if (!_trackingEnabled.value || session.client.state.value != LinkState.READY) return
+
+        val setup = camera
+        val tiltDeg = session.telemetry.value?.let { it.tilt / 100.0 }
+        // Faces arrive in display coordinates; the front preview is mirrored, the tracker's
+        // geometry is not.
+        val box = frame.target?.box?.let { if (frame.mirrored) NormBox(1 - it.right, it.top, 1 - it.left, it.bottom) else it }
+        val output = tracker.update(
+            target = box,
+            imageWidth = frame.imageWidth,
+            imageHeight = frame.imageHeight,
+            fov = setup.fov,
+            frontCamera = setup.front,
+            tiltDeg = tiltDeg,
+            nowMillis = frame.timestampMillis,
+            params = trackingSettings.params.value,
+        )
+        session.setTrackerCommand(output.command)
+        _trackingOutput.value = output
+        if (tracker.learnedTiltLimits != lastLearnedLimits) {
+            lastLearnedLimits = tracker.learnedTiltLimits
+            Log.d(GimbalSession.LOG_TAG, "TILT end stops learned up=${lastLearnedLimits.first} down=${lastLearnedLimits.second}")
         }
-        // Anything that is not telemetry is rare and always worth seeing.
-        appendLog(LogEntry.of(LogEntry.Kind.RX, "${bytes.toHex()}  [$frame]"))
-    }
-
-    private fun arrowFor(right: Int, up: Int) = when {
-        up > 0 -> "▲"
-        up < 0 -> "▼"
-        right > 0 -> "▶"
-        else -> "◀"
-    }
-
-    fun setStrength(value: Int) {
-        _strength.value = value
-    }
-
-    fun setLogJoystick(enabled: Boolean) {
-        _logJoystick.value = enabled
-    }
-
-    fun home() {
-        viewModelScope.launch { client.send(FeiyuProtocol.home()) }
-    }
-
-    /**
-     * Sends a hand-written frame, for exploring unknown commands.
-     * With [appendCrc] the input must start with `A5 5A` and leave out the CRC.
-     */
-    fun sendRaw(hex: String, appendCrc: Boolean) {
-        val frame = try {
-            val bytes = parseHex(hex)
-            if (appendCrc) FeiyuProtocol.withCrc(bytes) else bytes
-        } catch (e: IllegalArgumentException) {
-            appendLog(LogEntry.error(e.message ?: "Ungültige Eingabe"))
-            return
-        }
-        if (frame.isEmpty()) return
-        viewModelScope.launch {
-            if (!client.send(frame)) appendLog(LogEntry.error("Nicht gesendet (nicht verbunden?)"))
-        }
-    }
-
-    fun clearLog() {
-        _log.value = emptyList()
-    }
-
-    /**
-     * Sends the held direction every [SEND_INTERVAL_MS] ms. On release it sends a zero frame twice
-     * so the gimbal stops even if one frame is lost.
-     */
-    private suspend fun joystickLoop() {
-        var wasMoving = false
-        while (viewModelScope.isActive) {
-            val (dx, dy) = direction.value
-            val moving = dx != 0 || dy != 0
-            if (moving) {
-                val s = _strength.value
-                client.send(FeiyuProtocol.move(dx * s, dy * s), _logJoystick.value)
-                wasMoving = true
-            } else if (wasMoving) {
-                repeat(2) { client.send(FeiyuProtocol.joystick(0, 0), logIt = true) }
-                wasMoving = false
-            }
-            delay(SEND_INTERVAL_MS)
-        }
-    }
-
-    private fun appendLog(entry: LogEntry, mirror: Boolean = true) {
-        // Mirror to logcat so test sessions can be read with `adb logcat -s SmartGimbal`.
-        if (mirror) Log.d(LOG_TAG, "${entry.kind.name.padEnd(5)} ${entry.text}")
-        _log.update { (listOf(entry) + it).take(MAX_LOG_ENTRIES) }
+        Log.d(
+            GimbalSession.LOG_TAG,
+            "TRACK errPan=%.2f errTilt=%.2f cmdPan=%d cmdTilt=%d tilt=%s".format(
+                Locale.ROOT, output.panErrorDeg, output.tiltErrorDeg,
+                output.command.panRight, output.command.tiltUp,
+                tiltDeg?.let { "%.1f".format(Locale.ROOT, it) } ?: "-",
+            ),
+        )
     }
 
     override fun onCleared() {
-        client.close()
-    }
-
-    companion object {
-        /** 20 Hz, within the 15 to 25 Hz the spec allows. */
-        const val SEND_INTERVAL_MS = 50L
-        const val DEFAULT_STRENGTH = 200
-        const val MAX_STRENGTH = 1000
-        private const val MAX_LOG_ENTRIES = 500
-        private const val LOG_TAG = "SmartGimbal"
+        faces.frameListener = null
+        session.close()
+        faces.close()
     }
 }

@@ -5,7 +5,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import dev.smartgimbal.ui.GimbalScreen
+import dev.smartgimbal.ui.SmartGimbalApp
 import dev.smartgimbal.ui.SmartGimbalTheme
 
 class MainActivity : ComponentActivity() {
@@ -15,7 +15,7 @@ class MainActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
             SmartGimbalTheme {
-                GimbalScreen()
+                SmartGimbalApp()
             }
         }
     }

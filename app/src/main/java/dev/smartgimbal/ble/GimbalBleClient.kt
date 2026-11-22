@@ -62,12 +62,17 @@ class GimbalBleClient(
     private val writeMutex = Mutex()
     private val stopScanRunnable = Runnable { stopScan() }
 
+    /** When set, the scan connects to the first gimbal it finds. */
+    @Volatile private var autoConnect = false
+
     val isBluetoothEnabled: Boolean get() = adapter?.isEnabled == true
 
     // region Scan
 
-    fun startScan() {
+    /** Scans for [FeiyuProtocol.DEVICE_NAME_PREFIX]; with [autoConnect] it connects to the first hit. */
+    fun startScan(autoConnect: Boolean = false) {
         if (_state.value != LinkState.IDLE) return
+        this.autoConnect = autoConnect
         val scanner = adapter?.takeIf { it.isEnabled }?.bluetoothLeScanner
         if (scanner == null) {
             log(LogEntry.error("Bluetooth ist aus oder nicht verfügbar"))
@@ -96,6 +101,10 @@ class GimbalBleClient(
             val found = FoundDevice(name, result.device.address, result.rssi)
             _devices.update { list ->
                 (list.filterNot { it.address == found.address } + found).sortedBy { it.name }
+            }
+            if (autoConnect && _state.value == LinkState.SCANNING) {
+                autoConnect = false
+                connect(found)
             }
         }
 
