@@ -45,7 +45,7 @@ Die Gimbal-Daten stammen aus den Mitschnitten von Phase 1: Die Geschwindigkeit l
 8. **Gesicht verloren:** Sofort Ausgabe 0, Position halten. Kommt das Gesicht nach 1 s nicht zurück, wird das größte neue Gesicht zum Ziel.
 9. **Vorrang beim Senden:** Die bestehende 20-Hz-Schleife sendet das Steuerkreuz vor dem Tracker, den Tracker nur, wenn er aktiv ist. Ist die Tracker-Ausgabe älter als 300 ms, wird gestoppt.
 
-Die Vorzeichen pro Kamera (Gesicht rechts im Bild bedeutet Pan rechts oder links) werden im Test bestätigt und sind im Debug-Screen umschaltbar.
+Die Vorzeichen pro Kamera sind im Debug-Screen umschaltbar. Erster Live-Test (2026-11-22): Die "Bedienersicht" aus Phase 1 ist der Blick auf die Displayseite. "Pan rechts" dreht beide Kameras also zu ihrer eigenen Linken, "Tilt hoch" hebt die Frontkamera und senkt die Hauptkamera. Daraus folgen die Vorzeichen Pan −1/−1 und Tilt Haupt −1, Front +1. Mit der ersten Annahme (+1/+1, +1/−1) ist der Gimbal auf beiden Kameras weggelaufen.
 
 ## Arbeitsschritte
 

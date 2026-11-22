@@ -52,7 +52,7 @@ A5 5A | route (2) | cmd (1) | flags (2) | len (2, LE) | payload (len) | CRC16 (2
 | `1E` | Telemetrie, etwa 2,4 Hz: `01 \| A int16 \| B int16 \| C int16 \| D u8` |
 
 - **Achsen bestätigt:** A = Tilt, B = Roll, C = Pan, jeweils in 0,01°. Tilt-Anschläge liegen bei etwa +27° und −32°. Pan folgt dem Griff (Follow-Modus), Home zentriert relativ zum Griff. D liegt bei 79/80, unklar ob Akku oder Temperatur.
-- **Richtung:** Aus Bedienersicht (Blick auf Klemme und Tasten) laufen beide Joystick-Rohachsen verkehrt herum. `FeiyuProtocol.move(panRight, tiltUp)` gleicht das aus, `Telemetry.pan`/`tilt` haben dieselben Vorzeichen.
+- **Richtung:** Aus Bedienersicht (Blick auf Klemme und Tasten, also auf die **Displayseite**) laufen beide Joystick-Rohachsen verkehrt herum. `FeiyuProtocol.move(panRight, tiltUp)` gleicht das aus, `Telemetry.pan`/`tilt` haben dieselben Vorzeichen.
 - **Geschwindigkeit:** Bei kleinen Werten ungefähr linear, etwa 0,22°/s pro Einheit, also 51 ≈ 11°/s und 200 ≈ 45°/s. Bei 1000 sind es nur etwa 60°/s, und der Gimbal läuft nach dem Stopp-Frame kurz nach.
 - **Notifications sind nicht frame-ausgerichtet:** Frames werden über mehrere Notifications verteilt oder aneinandergeklebt. `FrameAssembler` setzt sie wieder zusammen.
 

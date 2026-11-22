@@ -25,8 +25,9 @@ private val OTHER_COLOR = Color.White.copy(alpha = 0.7f)
  * which takes care of the FILL_CENTER crop and the front camera mirroring.
  */
 @Composable
-fun FaceOverlay(frame: FaceFrame?, previewView: PreviewView?, modifier: Modifier = Modifier) {
+fun FaceOverlay(frame: FaceFrame?, previewView: PreviewView?, showCenter: Boolean, modifier: Modifier = Modifier) {
     Canvas(modifier) {
+        if (showCenter) drawCenterCross()
         val f = frame ?: return@Canvas
         val target = previewView?.outputTransform ?: return@Canvas
         val transform = CoordinateTransform(f.sourceTransform, target)
@@ -35,6 +36,14 @@ fun FaceOverlay(frame: FaceFrame?, previewView: PreviewView?, modifier: Modifier
             drawFace(face, f, transform, if (isTarget) TARGET_COLOR else OTHER_COLOR, if (isTarget) 6f else 3f)
         }
     }
+}
+
+/** Image centre, the point the tracker steers the face to (preview and analysis share it). */
+private fun DrawScope.drawCenterCross() {
+    val c = center
+    val arm = 24f
+    drawLine(TARGET_COLOR, Offset(c.x - arm, c.y), Offset(c.x + arm, c.y), strokeWidth = 3f)
+    drawLine(TARGET_COLOR, Offset(c.x, c.y - arm), Offset(c.x, c.y + arm), strokeWidth = 3f)
 }
 
 private fun DrawScope.drawFace(face: DetectedFace, frame: FaceFrame, transform: CoordinateTransform, color: Color, width: Float) {

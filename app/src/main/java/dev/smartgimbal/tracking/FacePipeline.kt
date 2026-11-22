@@ -47,6 +47,9 @@ class FacePipeline(private val detector: FaceDetector = MlKitFaceDetector()) {
     private val _stats = MutableStateFlow(AnalysisStats(detector.name, 0f, 0f))
     val stats: StateFlow<AnalysisStats> = _stats.asStateFlow()
 
+    /** Called on the analysis thread after every frame; the tracker hooks in here for low latency. */
+    @Volatile var frameListener: ((FaceFrame) -> Unit)? = null
+
     @Volatile private var resetRequested = false
     private var avgMillis = 0f
     private var avgIntervalMillis = 0f
@@ -86,6 +89,7 @@ class FacePipeline(private val detector: FaceDetector = MlKitFaceDetector()) {
             timestampMillis = now,
         )
         _frame.value = result
+        frameListener?.invoke(result)
         updateStats(analysisMillis = now - start, now = now)
         logFrame(result, now - start)
     }

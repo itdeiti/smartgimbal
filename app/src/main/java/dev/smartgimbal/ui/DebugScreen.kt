@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.smartgimbal.ble.FoundDevice
 import dev.smartgimbal.gimbal.GimbalSession
+import dev.smartgimbal.tracking.TrackingSettings
 import dev.smartgimbal.ble.LinkState
 import dev.smartgimbal.ble.LogEntry
 import dev.smartgimbal.protocol.Telemetry
@@ -76,7 +77,7 @@ private fun hasBlePermissions(context: Context) = BLE_PERMISSIONS.all {
 
 /** Protocol tools from phase 1: connect, D-pad, telemetry, raw frames, log. */
 @Composable
-fun DebugScreen(session: GimbalSession, onBack: () -> Unit) {
+fun DebugScreen(session: GimbalSession, trackingSettings: TrackingSettings, onBack: () -> Unit) {
     val context = LocalContext.current
     val state by session.client.state.collectAsStateWithLifecycle()
     val devices by session.client.devices.collectAsStateWithLifecycle()
@@ -88,6 +89,7 @@ fun DebugScreen(session: GimbalSession, onBack: () -> Unit) {
     val telemetryZero by session.telemetryZero.collectAsStateWithLifecycle()
     val telemetryCount by session.telemetryCount.collectAsStateWithLifecycle()
     val logTelemetry by session.logTelemetry.collectAsStateWithLifecycle()
+    val trackingParams by trackingSettings.params.collectAsStateWithLifecycle()
 
     var hasPermissions by remember { mutableStateOf(hasBlePermissions(context)) }
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -175,6 +177,14 @@ fun DebugScreen(session: GimbalSession, onBack: () -> Unit) {
                     logTelemetry = logTelemetry,
                     onZero = session::zeroTelemetry,
                     onLogTelemetry = session::setLogTelemetry,
+                )
+            }
+
+            item {
+                TuningCard(
+                    params = trackingParams,
+                    onChange = trackingSettings::update,
+                    onReset = trackingSettings::resetToDefaults,
                 )
             }
 

@@ -52,14 +52,13 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.smartgimbal.ble.LinkState
 import dev.smartgimbal.gimbal.CommandSource
+import dev.smartgimbal.GimbalViewModel
 import dev.smartgimbal.gimbal.GimbalSession
-import dev.smartgimbal.tracking.FacePipeline
 
 /** Main screen: full-screen camera preview with gimbal status and controls on top. */
 @Composable
 fun CameraScreen(
-    session: GimbalSession,
-    faces: FacePipeline,
+    vm: GimbalViewModel,
     useFrontCamera: Boolean,
     onToggleCamera: () -> Unit,
     onOpenDebug: () -> Unit,
@@ -71,7 +70,7 @@ fun CameraScreen(
     ) { granted = context.hasAll(REQUIRED_PERMISSIONS) }
 
     if (granted) {
-        CameraContent(session, faces, useFrontCamera, onToggleCamera, onOpenDebug)
+        CameraContent(vm, useFrontCamera, onToggleCamera, onOpenDebug)
     } else {
         PermissionGate(onRequest = { launcher.launch(REQUIRED_PERMISSIONS + OPTIONAL_PERMISSIONS) })
     }
@@ -97,14 +96,17 @@ private fun PermissionGate(onRequest: () -> Unit) {
 
 @Composable
 private fun CameraContent(
-    session: GimbalSession,
-    faces: FacePipeline,
+    vm: GimbalViewModel,
     useFront: Boolean,
     onToggleCamera: () -> Unit,
     onOpenDebug: () -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val session = vm.session
+    val faces = vm.faces
+    val trackingEnabled by vm.trackingEnabled.collectAsStateWithLifecycle()
+    val gimbalState by session.client.state.collectAsStateWithLifecycle()
 
     val frame by faces.frame.collectAsStateWithLifecycle()
     val stats by faces.stats.collectAsStateWithLifecycle()
@@ -137,6 +139,7 @@ private fun CameraContent(
         controller.cameraSelector =
             if (useFront) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
         faces.reset()
+        vm.setCamera(useFront)
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -153,7 +156,12 @@ private fun CameraContent(
             modifier = Modifier.fillMaxSize(),
         )
 
-        FaceOverlay(frame = frame, previewView = previewView, modifier = Modifier.fillMaxSize())
+        FaceOverlay(
+            frame = frame,
+            previewView = previewView,
+            showCenter = trackingEnabled,
+            modifier = Modifier.fillMaxSize(),
+        )
 
         Text(
             text = "%d %s · %s %.0f ms · %.0f fps".format(
@@ -190,7 +198,13 @@ private fun CameraContent(
         ) {
             OverlayButton(if (useFront) "Hauptkamera" else "Frontkamera", onClick = onToggleCamera)
             RecordButton(enabled = false, onClick = {}) // step 5
-            OverlayButton("Tracking", enabled = false, onClick = {}) // step 4
+            OverlayButton(
+                text = if (trackingEnabled) "Tracking an" else "Tracking aus",
+                active = trackingEnabled,
+                // Switching on needs a gimbal; switching off must always work.
+                enabled = trackingEnabled || gimbalState == LinkState.READY,
+                onClick = { vm.setTrackingEnabled(!trackingEnabled) },
+            )
         }
     }
 }
@@ -245,12 +259,12 @@ private fun GimbalChip(session: GimbalSession, onOpenDebug: () -> Unit) {
 }
 
 @Composable
-private fun OverlayButton(text: String, onClick: () -> Unit, enabled: Boolean = true) {
+private fun OverlayButton(text: String, onClick: () -> Unit, enabled: Boolean = true, active: Boolean = false) {
     Box(
         Modifier
             .alpha(if (enabled) 1f else 0.4f)
             .clip(RoundedCornerShape(50))
-            .background(Color.Black.copy(alpha = 0.55f))
+            .background(if (active) Color(0xFF2E7D32) else Color.Black.copy(alpha = 0.55f))
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {

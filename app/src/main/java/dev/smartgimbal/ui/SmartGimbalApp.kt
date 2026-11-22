@@ -19,15 +19,18 @@ fun SmartGimbalApp(vm: GimbalViewModel = viewModel()) {
     var useFrontCamera by rememberSaveable { mutableStateOf(false) }
     when (screen) {
         Screen.CAMERA -> CameraScreen(
-            session = vm.session,
-            faces = vm.faces,
+            vm = vm,
             useFrontCamera = useFrontCamera,
             onToggleCamera = { useFrontCamera = !useFrontCamera },
             onOpenDebug = { screen = Screen.DEBUG },
         )
         Screen.DEBUG -> {
             BackHandler { screen = Screen.CAMERA }
-            DebugScreen(session = vm.session, onBack = { screen = Screen.CAMERA })
+            DebugScreen(
+                session = vm.session,
+                trackingSettings = vm.trackingSettings,
+                onBack = { screen = Screen.CAMERA },
+            )
         }
     }
 }
