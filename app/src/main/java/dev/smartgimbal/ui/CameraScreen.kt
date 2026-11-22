@@ -40,6 +40,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,6 +61,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -242,6 +245,8 @@ private fun CameraContent(
     // The controller crops every output to the preview's aspect ratio. A 16:9 preview (letterboxed
     // like in camera apps) keeps the recording at full 16:9 and shows exactly what is recorded.
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    // Portrait is less than half as wide: both button rows only fit with tighter buttons.
+    CompositionLocalProvider(LocalCompactButtons provides !landscape) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
       Box(Modifier.align(Alignment.Center).aspectRatio(if (landscape) 16f / 9f else 9f / 16f)) {
         AndroidView(
@@ -289,10 +294,14 @@ private fun CameraContent(
                 active = zoomLevel != ZoomLevel.NORMAL,
                 onClick = { vm.setZoomLevel(zoomLevel.next(frontCamera = useFront)) },
             )
-            Spacer(Modifier.width(8.dp))
-            OverlayButton("?", enabled = !busy, onClick = { if (!busy) onOpenHelp() })
-            Spacer(Modifier.width(8.dp))
-            OverlayButton("Debug", enabled = !busy, onClick = openDebug)
+            // Both are disabled while the camera is busy; in portrait they make room for the
+            // recording badge then.
+            if (landscape || !busy) {
+                Spacer(Modifier.width(8.dp))
+                OverlayButton("?", enabled = !busy, onClick = { if (!busy) onOpenHelp() })
+                Spacer(Modifier.width(8.dp))
+                OverlayButton("Debug", enabled = !busy, onClick = openDebug)
+            }
         }
 
         voiceFeedback?.let { note ->
@@ -326,7 +335,11 @@ private fun CameraContent(
         }
 
         Row(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().systemBarsPadding().padding(24.dp),
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .systemBarsPadding()
+                .padding(horizontal = if (landscape) 24.dp else 8.dp, vertical = 24.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -351,6 +364,7 @@ private fun CameraContent(
             )
         }
     }
+    }
 }
 
 /**
@@ -365,6 +379,7 @@ private fun GimbalChip(session: GimbalSession, trackingEnabled: Boolean, onOpenD
     val battery by session.battery.collectAsStateWithLifecycle()
     val triggerHeld by session.triggerHeld.collectAsStateWithLifecycle()
     val trackingPaused = triggerHeld && trackingEnabled
+    val compact = LocalCompactButtons.current
     val scanAndConnect = rememberScanAction(session.client, autoConnect = true)
 
     val label = when (state) {
@@ -372,9 +387,13 @@ private fun GimbalChip(session: GimbalSession, trackingEnabled: Boolean, onOpenD
         LinkState.SCANNING -> "Suche Gimbal …"
         LinkState.CONNECTING, LinkState.DISCOVERING -> "Verbinde … ✕"
         LinkState.READY -> buildString {
-            append("● ").append(name ?: "Gimbal")
-            battery?.let { append(" · ").append(it).append(" %") }
-            if (triggerHeld) append(if (trackingPaused) " · Trigger, Tracking pausiert" else " · Trigger")
+            append("●")
+            // In portrait the battery level stands in for the name, there is no room for both.
+            val level = battery
+            if (level == null || !compact) append(" ").append(name ?: "Gimbal")
+            if (level != null) append(if (compact) " " else " · ").append(level).append(" %")
+            // ⏸ = tracking is paused while the trigger is held.
+            if (triggerHeld) append(if (trackingPaused) " · Trigger ⏸" else " · Trigger")
             when (source) {
                 CommandSource.MANUAL -> append(" · manuell")
                 CommandSource.TRACKER -> append(" · Tracking")
@@ -422,9 +441,16 @@ private fun OverlayButton(
             .clip(RoundedCornerShape(50))
             .background(if (active) Color(0xFF2E7D32) else Color.Black.copy(alpha = 0.55f))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = if (LocalCompactButtons.current) 10.dp else 16.dp, vertical = 10.dp),
     ) {
-        Text(text, color = Color.White, style = MaterialTheme.typography.labelLarge)
+        Text(
+            text,
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -432,6 +458,9 @@ private fun OverlayButton(
 private const val GRAB_INTERVAL_MS = 33L
 
 private const val CHIP_TAP_GUARD_MS = 800L
+
+/** True in portrait, where the overlay buttons use less padding. */
+private val LocalCompactButtons = compositionLocalOf { false }
 
 /** Face boxes over the preview. Reads the frame here, so a new frame redraws only this layer. */
 @Composable

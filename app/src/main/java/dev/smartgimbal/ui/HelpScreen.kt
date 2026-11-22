@@ -129,7 +129,8 @@ private val TIPS = listOf(
 private val CONTROLS = listOf(
     "Gimbal-Chip (oben links)" to
         "Antippen verbindet mit dem Gimbal, nochmal antippen bricht ab. Verbunden: zeigt den Akkustand des " +
-        "Gimbals und „Trigger“, solange die Zeigefinger-Taste gehalten wird. Antippen öffnet den Debug-Screen.",
+        "Gimbals und „Trigger“, solange die Zeigefinger-Taste gehalten wird (⏸ = Tracking pausiert). Antippen " +
+        "öffnet den Debug-Screen.",
     "Daumentaste am Gimbal" to
         "Kurz: Foto. Lang: Aufnahme starten. Doppelt: Kamera wechseln. Läuft eine Aufnahme oder der " +
         "Countdown, stoppt ein kurzer oder langer Druck. Funktioniert, solange der Kamera-Screen offen ist.",
