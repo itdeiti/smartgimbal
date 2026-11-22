@@ -40,9 +40,10 @@ Die Gimbal-Daten stammen aus den Mitschnitten von Phase 1: Die Geschwindigkeit l
 3. **Totzone:** 3° um die Mitte, innerhalb davon kein Nachregeln.
 4. **PD-Regler pro Achse:** Er rechnet Grad Abweichung in °/s Sollgeschwindigkeit um und dann in Joystick-Einheiten (÷ 0,22). Startwert Kp ≈ 2/s, damit ist die Hälfte des Fehlers nach etwa 0,35 s weg.
 5. **Begrenzen:** maximal ±250 Einheiten (linearer Bereich, kein Nachlaufen) und eine Rampe gegen ruckartige Starts.
-6. **Tilt-Anschläge:** Die Telemetrie meldet etwa +27° und −32°. Nahe am Anschlag wird nicht weiter in diese Richtung gedrückt.
-7. **Gesicht verloren:** Sofort Ausgabe 0, Position halten. Kommt das Gesicht nach 1 s nicht zurück, wird das größte neue Gesicht zum Ziel.
-8. **Vorrang beim Senden:** Die bestehende 20-Hz-Schleife sendet das Steuerkreuz vor dem Tracker, den Tracker nur, wenn er aktiv ist. Ist die Tracker-Ausgabe älter als 300 ms, wird gestoppt.
+6. **Pan-Wrap:** Die Telemetrie meldet Pan im Bereich ±180° und springt an der Grenze (gemessen: +164,98°, dann −176,22°). Jede Winkeldifferenz auf Pan wird deshalb auf −180…+180 normiert.
+7. **Tilt-Anschläge:** Die Telemetrie meldet etwa +27° und −32°. Nahe am Anschlag wird nicht weiter in diese Richtung gedrückt.
+8. **Gesicht verloren:** Sofort Ausgabe 0, Position halten. Kommt das Gesicht nach 1 s nicht zurück, wird das größte neue Gesicht zum Ziel.
+9. **Vorrang beim Senden:** Die bestehende 20-Hz-Schleife sendet das Steuerkreuz vor dem Tracker, den Tracker nur, wenn er aktiv ist. Ist die Tracker-Ausgabe älter als 300 ms, wird gestoppt.
 
 Die Vorzeichen pro Kamera (Gesicht rechts im Bild bedeutet Pan rechts oder links) werden im Test bestätigt und sind im Debug-Screen umschaltbar.
 
