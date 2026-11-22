@@ -105,10 +105,11 @@ private val TIPS = listOf(
         "Das Sprachmodell ist deutsch. „Gimbal“ kennt es nicht, deshalb heißt der Befehl „Kamera zurück“. " +
         "„Cheese“ kennt es auch nicht, versteht es aber als „Käse“.",
     "Foto und Video" to
-        "Fotos gibt es nur ohne laufende Aufnahme. Während des 3-Sekunden-Countdowns bricht „Stopp“ ab. " +
+        "Fotos gibt es nur ohne laufende Aufnahme. Während des Countdowns bricht „Stopp“ ab. " +
         "Videos: Hauptkamera 4K/30, Frontkamera höchstens 1080p.",
     "Tracking" to
-        "Braucht einen verbundenen Gimbal. Beim Gehen hängt der Gimbal etwas hinterher, dafür schwingt er nicht " +
+        "Braucht einen verbundenen Gimbal. Solange die Zeigefinger-Taste am Gimbal gehalten wird, pausiert das " +
+        "Tracking. Beim Gehen hängt der Gimbal etwas hinterher, dafür schwingt er nicht " +
         "über. Steht er ruhig, regelt er erst ab einer kleinen Abweichung nach (Totzone).",
     "Anschläge" to
         "Tilt hat mechanische Grenzen (nach oben etwa 25°). Dort bleibt ein Gesicht über der Bildmitte; die App " +
@@ -122,11 +123,17 @@ private val TIPS = listOf(
 )
 
 private val CONTROLS = listOf(
-    "Gimbal-Chip (oben links)" to "Antippen verbindet mit dem ersten FeiyuTech-Gimbal. Verbunden: öffnet den Debug-Screen.",
+    "Gimbal-Chip (oben links)" to
+        "Antippen verbindet mit dem Gimbal, nochmal antippen bricht ab. Verbunden: zeigt den Akkustand des " +
+        "Gimbals und „Trigger“, solange die Zeigefinger-Taste gehalten wird. Antippen öffnet den Debug-Screen.",
+    "Daumentaste am Gimbal" to
+        "Kurz: Foto. Lang: Aufnahme starten. Doppelt: Kamera wechseln. Läuft eine Aufnahme oder der " +
+        "Countdown, stoppt ein kurzer oder langer Druck. Funktioniert, solange der Kamera-Screen offen ist.",
     "Home" to "Gimbal in die Mittelstellung.",
     "Zoom (oben rechts)" to "Antippen schaltet 0,7× → 1× → 2× → 4×.",
     "Front / Haupt" to "Wechselt die Kamera (nicht während Aufnahme oder Countdown).",
-    "Foto" to "Startet den 3-Sekunden-Countdown, währenddessen „Abbrechen“.",
+    "Foto" to "Macht ein Foto nach dem eingestellten Selbstauslöser, währenddessen „Abbrechen“.",
+    "⏱ (unten rechts)" to "Selbstauslöser: Antippen schaltet 3 s → 10 s → aus.",
     "Roter Knopf" to "Aufnahme starten und stoppen.",
     "Sprache" to "Sprachsteuerung ein/aus (grün = hört zu).",
     "Tracking" to "Face-Tracking ein/aus (grün = an). Das grüne Kreuz markiert die Bildmitte.",

@@ -4,8 +4,11 @@ import android.content.Context
 import android.os.SystemClock
 import dev.smartgimbal.AppLog
 import dev.smartgimbal.BuildConfig
+import dev.smartgimbal.RollingAverage
 import dev.smartgimbal.ble.GimbalBleClient
+import dev.smartgimbal.ble.LinkState
 import dev.smartgimbal.ble.LogEntry
+import dev.smartgimbal.protocol.ButtonPress
 import dev.smartgimbal.protocol.FeiyuProtocol
 import dev.smartgimbal.protocol.Frame
 import dev.smartgimbal.protocol.FrameAssembler
@@ -14,12 +17,16 @@ import dev.smartgimbal.protocol.parseHex
 import dev.smartgimbal.protocol.toHex
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * Everything that talks to the gimbal: BLE link, RX parsing, telemetry, log and the 20 Hz send loop.
@@ -61,11 +68,35 @@ class GimbalSession(context: Context, private val scope: CoroutineScope) {
     private val _activeSource = MutableStateFlow<CommandSource?>(null)
     val activeSource: StateFlow<CommandSource?> = _activeSource.asStateFlow()
 
+    /** Battery level in percent, null while not connected. Smoothed: the raw value jitters by ±1. */
+    private val _battery = MutableStateFlow<Int?>(null)
+    val battery: StateFlow<Int?> = _battery.asStateFlow()
+
+    /** True while the trigger on the handle is held (telemetry arrives 2.4 times per second). */
+    private val _triggerHeld = MutableStateFlow(false)
+    val triggerHeld: StateFlow<Boolean> = _triggerHeld.asStateFlow()
+
+    @Volatile private var batteryAverage = RollingAverage(BATTERY_SMOOTHING)
+
+    /** Presses of the thumb button on the gimbal's handle. */
+    private val _buttonPresses = MutableSharedFlow<ButtonPress>(extraBufferCapacity = 4)
+    val buttonPresses: SharedFlow<ButtonPress> = _buttonPresses.asSharedFlow()
+
     private val assembler = FrameAssembler()
     private val arbiter = CommandArbiter()
 
     init {
         scope.launch { sendLoop() }
+        scope.launch {
+            // A new connection may be a different or freshly charged gimbal: start over.
+            client.state.collect { state ->
+                if (state != LinkState.READY) {
+                    batteryAverage = RollingAverage(BATTERY_SMOOTHING)
+                    _battery.value = null
+                    _triggerHeld.value = false
+                }
+            }
+        }
     }
 
     // region Commands
@@ -191,6 +222,8 @@ class GimbalSession(context: Context, private val scope: CoroutineScope) {
         if (telemetry != null) {
             _telemetry.value = telemetry
             _telemetryCount.update { it + 1 }
+            _battery.value = batteryAverage.add(telemetry.batteryPercent.toFloat()).roundToInt()
+            _triggerHeld.value = telemetry.triggerHeld
             // Always in logcat so test runs can be analysed; in the UI log only on request.
             AppLog.d {
                 "TELEM pan=${telemetry.pan} tilt=${telemetry.tilt} roll=${telemetry.roll} d=${telemetry.d} s=${telemetry.status}"
@@ -198,6 +231,7 @@ class GimbalSession(context: Context, private val scope: CoroutineScope) {
             if (_logTelemetry.value) appendLog(LogEntry.of(LogEntry.Kind.RX, bytes.toHex()), mirror = false)
             return
         }
+        ButtonPress.fromFrame(frame)?.let(_buttonPresses::tryEmit)
         // Anything that is not telemetry is rare and always worth seeing.
         appendLog(LogEntry.of(LogEntry.Kind.RX, "${bytes.toHex()}  [$frame]"))
     }
@@ -234,6 +268,7 @@ class GimbalSession(context: Context, private val scope: CoroutineScope) {
         const val SEND_INTERVAL_MS = 50L
         const val DEFAULT_STRENGTH = 200
         const val MAX_STRENGTH = 1000
+        private const val BATTERY_SMOOTHING = 0.2f
         private const val MAX_LOG_ENTRIES = 500
     }
 }

@@ -25,8 +25,8 @@ enum class VoiceCommand(val label: String, val help: String, vararg val phrases:
 
     // "cheese" is not in the vocabulary either; a spoken "cheese" lands on "käse" (confirmed).
     PHOTO(
-        "Käse – Foto in 3 s",
-        "Selbstauslöser: nach 3 Sekunden Countdown wird ein Foto gemacht. Nur ohne laufende Aufnahme. " +
+        "Käse – Foto",
+        "Macht ein Foto nach dem eingestellten Selbstauslöser (aus, 3 s oder 10 s). Nur ohne laufende Aufnahme. " +
             "„Cheese“ funktioniert auch.",
         "käse",
     ),

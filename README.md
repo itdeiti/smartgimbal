@@ -15,10 +15,13 @@ cloud connection.
 - **Face tracking.** ML Kit face detection steers pan and tilt through a PD controller that was tuned against a simulation of the real gimbal.
 - **Offline voice control (German).** Vosk with a fixed command grammar handles recording, photo self-timer, zoom, tracking and home.
 - **Recording.** 4K/30 video with sound while tracking runs (rear camera; the front camera is limited to 1080p).
-- **Photo.** A spoken "Käse" starts a 3 s self-timer.
+- **Photo.** By button, gimbal button or a spoken "Käse", with a self-timer of 3 s, 10 s or none.
 - **Zoom.** 0.67× (ultrawide), 1×, 2× and 4× by voice or button. The tracker adapts its field of view.
-- **Gimbal control.** One-tap connect, manual D-pad, home, live telemetry (pan, tilt, roll).
-- **Debug tools.** Raw frame sender with automatic CRC, log of all BLE traffic, tuning sliders for tracker and voice.
+- **Gimbal control.** One-tap connect that prefers the gimbal used last time, manual D-pad, home, live telemetry (pan, tilt, roll).
+- **Gimbal status.** Battery level of the gimbal and whether its trigger is held, shown next to the gimbal's name.
+- **Gimbal buttons.** The thumb button on the handle takes a photo, starts and stops recording or switches the camera. Holding the trigger pauses tracking.
+- **Offline by design.** No network permission; nothing leaves the phone.
+- **Debug tools.** Log of all BLE traffic with decoded frames, tuning sliders for tracker and voice, and (debug builds) a raw frame sender with automatic CRC.
 
 ## Requirements
 
@@ -59,7 +62,26 @@ Run the unit tests (protocol, tracker simulation, voice parser):
 3. Tap **Tracking** or say "Tracking an". The gimbal keeps the green-framed face centred.
 4. Record with the red button or say "Aufnahme starten". Files go to `Movies/SmartGimbal` and `Pictures/SmartGimbal`.
 
+5. Take a photo with **Foto** or say "Käse". The **⏱** button in the lower right corner sets the self-timer: 3 s, 10 s or off.
+
 The **?** button on the camera screen opens a help screen with all voice commands and tips.
+
+### Gimbal status and buttons
+
+Once connected, the chip in the upper left corner shows the gimbal's name and battery level, for
+example `● FY_PocketV_3E · 71 %`, and `Trigger` while the trigger is held.
+
+| Button on the gimbal | Press | Effect |
+| --- | --- | --- |
+| Thumb button | short | photo, after the self-timer |
+| Thumb button | long | start recording |
+| Thumb button | double | switch between front and rear camera |
+| Thumb button | short or long, while recording or during the countdown | stop recording / cancel the countdown |
+| Trigger (index finger) | hold | tracking pauses and resumes on release |
+
+The thumb button works while the camera screen is open. The trigger's own functions (lock,
+recentre) and the power button are handled by the gimbal itself and cannot be reassigned.
+The battery level is read from the gimbal's status frames; see [docs/protocol.md](docs/protocol.md).
 
 ### Voice commands
 
@@ -70,7 +92,7 @@ vibrate and show a short note.
 | --- | --- |
 | „Aufnahme starten" | start video recording |
 | „Stopp" / „Aufnahme stopp" / „Aufnahme stoppen" / „Stoppen" / „Abbrechen" | stop recording or cancel the photo self-timer |
-| „Käse" (a spoken "Cheese" works too) | photo after a 3 s countdown (only when not recording) |
+| „Käse" (a spoken "Cheese" works too) | photo after the self-timer (only when not recording) |
 | „Tracking an" / „Tracking aus" | face tracking on / off |
 | „Kamera zurück" | gimbal back to its centre position |
 | „Weitwinkel an" / „Weitwinkel aus" | ultrawide lens (0.67×) / back to 1× |
@@ -131,7 +153,8 @@ metrics; the manifest removes it.
 
 - **Voice:** German only; the small model works best within a few metres. Several commands in one breath are ignored, so pause between them.
 - **Camera:** The front camera records at most 1080p and has no ultrawide.
-- **Protocol:** Gimbal modes and holder rotation are not reverse-engineered yet.
+- **Protocol:** Gimbal modes and holder rotation are not reverse-engineered yet. The battery level is inferred from a status byte that fell from 80 to 70 over a day of use; it has not been checked while charging.
+- **Gimbal buttons:** Only the thumb button reports its presses. A double or triple press of the trigger leaves no trace the app could react to.
 - **Device-specific:** Tuning is device-specific (tested on one Pixel 7 and one VLOG pocket).
 
 ## Credits and third-party licenses

@@ -46,6 +46,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -77,6 +78,7 @@ import dev.smartgimbal.REQUIRED_PERMISSIONS
 import dev.smartgimbal.hasAll
 import dev.smartgimbal.tracking.FacePipeline
 import dev.smartgimbal.camera.PhotoTaker
+import dev.smartgimbal.camera.PhotoTimer
 import dev.smartgimbal.camera.ZoomLevel
 import dev.smartgimbal.camera.PreviewFrameGrabber
 import dev.smartgimbal.camera.RecordingState
@@ -147,6 +149,7 @@ private fun CameraContent(
     val photo = remember { PhotoTaker(context) }
     val photoState by photo.state.collectAsStateWithLifecycle()
     val zoomLevel by vm.zoomLevel.collectAsStateWithLifecycle()
+    val photoTimer by vm.photoTimer.params.collectAsStateWithLifecycle()
     var appliedZoom by remember { mutableFloatStateOf(1f) }
     val scope = rememberCoroutineScope()
     val countingDown = photoState.countdown != null
@@ -167,7 +170,10 @@ private fun CameraContent(
             imageCaptureMode = ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
         }
     }
-    val startPhoto = { if (!busy) photo.start(scope, controller) { appliedZoom } }
+    val startPhoto = { if (!busy) photo.start(scope, controller, photoTimer.seconds) { appliedZoom } }
+    // Voice and gimbal button reach the photo through a long-lived collector; it must see the
+    // current timer and busy state, not the ones from when it started.
+    val currentStartPhoto by rememberUpdatedState(startPhoto)
 
     DisposableEffect(lifecycleOwner) {
         controller.bindToLifecycle(lifecycleOwner)
@@ -192,11 +198,13 @@ private fun CameraContent(
                 VoiceCommand.START_RECORDING -> if (!photo.isCountingDown) recorder.start(controller)
                 // Stop cancels the self-timer if one is running, otherwise it ends the recording.
                 VoiceCommand.STOP -> if (photo.isCountingDown) photo.cancel() else recorder.stop()
-                VoiceCommand.PHOTO -> startPhoto()
+                VoiceCommand.PHOTO -> currentStartPhoto()
                 else -> Unit
             }
         }
     }
+    val currentOnToggleCamera by rememberUpdatedState(onToggleCamera)
+    LaunchedEffect(Unit) { vm.cameraToggles.collect { currentOnToggleCamera() } }
     // Wide angle = the logical camera's minimum zoom ratio (0.67 on the Pixel 7 = ultrawide lens).
     LaunchedEffect(zoomLevel, useFront) {
         val (ratio, max) = applyZoom(controller, zoomLevel)
@@ -250,13 +258,21 @@ private fun CameraContent(
             Modifier.align(Alignment.BottomStart).systemBarsPadding().padding(start = 16.dp, bottom = 128.dp),
         )
 
+        OverlayButton(
+            text = "⏱ ${photoTimer.label}",
+            active = photoTimer != PhotoTimer.S3,
+            enabled = !busy,
+            onClick = { vm.photoTimer.update { it.next() } },
+            modifier = Modifier.align(Alignment.BottomEnd).systemBarsPadding().padding(end = 16.dp, bottom = 128.dp),
+        )
+
         // Leaving the screen would release the camera and cut the recording or the self-timer.
         val openDebug = { if (!busy) onOpenDebug() }
         Row(
             Modifier.align(Alignment.TopCenter).fillMaxWidth().systemBarsPadding().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            GimbalChip(session, openDebug)
+            GimbalChip(session, trackingEnabled, openDebug)
             Spacer(Modifier.weight(1f))
             if (rec.recording) RecordingBadge(rec)
             Spacer(Modifier.weight(1f))
@@ -334,10 +350,13 @@ private fun CameraContent(
  * tapping it while connecting cancels.
  */
 @Composable
-private fun GimbalChip(session: GimbalSession, onOpenDebug: () -> Unit) {
+private fun GimbalChip(session: GimbalSession, trackingEnabled: Boolean, onOpenDebug: () -> Unit) {
     val state by session.client.state.collectAsStateWithLifecycle()
     val name by session.client.connectedName.collectAsStateWithLifecycle()
     val source by session.activeSource.collectAsStateWithLifecycle()
+    val battery by session.battery.collectAsStateWithLifecycle()
+    val triggerHeld by session.triggerHeld.collectAsStateWithLifecycle()
+    val trackingPaused = triggerHeld && trackingEnabled
     val scanAndConnect = rememberScanAction(session.client, autoConnect = true)
 
     val label = when (state) {
@@ -346,6 +365,8 @@ private fun GimbalChip(session: GimbalSession, onOpenDebug: () -> Unit) {
         LinkState.CONNECTING, LinkState.DISCOVERING -> "Verbinde … ✕"
         LinkState.READY -> buildString {
             append("● ").append(name ?: "Gimbal")
+            battery?.let { append(" · ").append(it).append(" %") }
+            if (triggerHeld) append(if (trackingPaused) " · Trigger, Tracking pausiert" else " · Trigger")
             when (source) {
                 CommandSource.MANUAL -> append(" · manuell")
                 CommandSource.TRACKER -> append(" · Tracking")
@@ -380,9 +401,15 @@ private fun GimbalChip(session: GimbalSession, onOpenDebug: () -> Unit) {
 }
 
 @Composable
-private fun OverlayButton(text: String, onClick: () -> Unit, enabled: Boolean = true, active: Boolean = false) {
+private fun OverlayButton(
+    text: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    active: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
     Box(
-        Modifier
+        modifier
             .alpha(if (enabled) 1f else 0.4f)
             .clip(RoundedCornerShape(50))
             .background(if (active) Color(0xFF2E7D32) else Color.Black.copy(alpha = 0.55f))
