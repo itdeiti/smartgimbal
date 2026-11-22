@@ -1,3 +1,5 @@
+<img src="docs/logo.svg" alt="SmartGimbal logo" width="96" align="right">
+
 # SmartGimbal
 
 Face tracking and offline voice control for the **FeiyuTech VLOG pocket** gimbal, as a native

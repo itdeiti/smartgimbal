@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The system splash screen (Android 12+) shows the logo on the brand background. The window
+         stays black afterwards so there is no flash before the camera preview appears. -->
+    <style name="Theme.SmartGimbal" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowSplashScreenBackground">@color/brand_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>

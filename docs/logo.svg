@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="512" height="512">
+  <!-- SmartGimbal logo: a tracked person inside a focus frame, on a gimbal handle. -->
+  <rect width="108" height="108" rx="24" fill="#0F1720"/>
+  <g fill="none" stroke="#4CAF50" stroke-width="4" stroke-linecap="round">
+    <path d="M34,37V32a4,4 0 0 1 4,-4H43"/>
+    <path d="M65,28H70a4,4 0 0 1 4,4V37"/>
+    <path d="M74,59V64a4,4 0 0 1 -4,4H65"/>
+    <path d="M43,68H38a4,4 0 0 1 -4,-4V59"/>
+  </g>
+  <circle cx="54" cy="43" r="6" fill="#FFFFFF"/>
+  <path d="M43,60A11,10 0 0 1 65,60Z" fill="#FFFFFF"/>
+  <rect x="50.5" y="72" width="7" height="11" rx="3.5" fill="#FFFFFF" fill-opacity="0.85"/>
+</svg>
