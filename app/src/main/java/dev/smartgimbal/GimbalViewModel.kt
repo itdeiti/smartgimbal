@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Activity-scoped owner of the long-lived parts: the [GimbalSession] (BLE link survives screen
@@ -46,7 +47,8 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
     private class CameraSetup(val front: Boolean, val fov: Fov)
 
     @Volatile private var camera = CameraSetup(front = false, fov = Fov.DEFAULT)
-    @Volatile private var resetTracker = false
+    /** Set from the main thread, consumed on the analysis thread; atomic so no request is lost. */
+    private val resetTracker = AtomicBoolean(false)
     private val tracker = FaceTracker()
     private var lastLearnedLimits: Pair<Double?, Double?> = null to null
 
@@ -106,7 +108,7 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
     fun setZoomRatio(ratio: Double, max: Float) {
         zoomRatio = ratio
         maxZoom = max
-        resetTracker = true
+        resetTracker.set(true)
         AppLog.d { "ZOOM ratio=%.2f".format(Locale.ROOT, ratio) }
     }
 
@@ -128,13 +130,13 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
         val fov = CameraFovReader.read(getApplication(), front) ?: Fov.DEFAULT
         camera = CameraSetup(front, fov)
         if (front && _zoomLevel.value == ZoomLevel.WIDE) _zoomLevel.value = ZoomLevel.NORMAL // no ultrawide in front
-        resetTracker = true
+        resetTracker.set(true)
         AppLog.d { "CAMERA front=$front fov=%.1f/%.1f".format(Locale.ROOT, fov.longDeg, fov.shortDeg) }
     }
 
     fun setTrackingEnabled(enabled: Boolean) {
         _trackingEnabled.value = enabled
-        resetTracker = true
+        resetTracker.set(true)
         if (!enabled) {
             session.setTrackerCommand(null)
             _trackingOutput.value = null
@@ -144,10 +146,7 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Runs on the analysis thread for every frame. */
     private fun onFaceFrame(frame: FaceFrame) {
-        if (resetTracker) {
-            tracker.reset()
-            resetTracker = false
-        }
+        if (resetTracker.getAndSet(false)) tracker.reset()
         if (!_trackingEnabled.value || session.client.state.value != LinkState.READY) return
 
         val setup = camera

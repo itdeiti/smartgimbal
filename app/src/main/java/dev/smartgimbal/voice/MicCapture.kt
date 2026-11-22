@@ -5,6 +5,7 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import androidx.annotation.RequiresPermission
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.sqrt
@@ -24,21 +25,22 @@ class MicCapture {
     }
 
     private val consumers = java.util.concurrent.CopyOnWriteArrayList<Consumer>()
-    @Volatile private var running = false
+    /** Run flag of the current capture thread; each start gets its own, see [stop]. */
+    @Volatile private var active: AtomicBoolean? = null
     private var thread: Thread? = null
 
     /** Level of the last chunk in dBFS (0 = full scale, about -90 = digital silence). */
     @Volatile var lastRmsDb: Double = SILENCE_DB
         private set
 
-    val isRunning: Boolean get() = running
+    val isRunning: Boolean get() = active != null
 
     fun addConsumer(consumer: Consumer) = consumers.add(consumer)
     fun removeConsumer(consumer: Consumer) = consumers.remove(consumer)
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     fun start() {
-        if (running) return
+        if (active != null) return
         val minBuffer = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val chunk = SAMPLE_RATE / 10 // 100 ms
         val record = AudioRecord.Builder()
@@ -53,22 +55,28 @@ class MicCapture {
             .setBufferSizeInBytes(max(minBuffer, chunk * 2 * 4))
             .setPrivacySensitive(false)
             .build()
-        running = true
-        thread = Thread({ loop(record, chunk) }, "mic-capture").apply { start() }
+        val flag = AtomicBoolean(true)
+        active = flag
+        thread = Thread({ loop(record, chunk, flag) }, "mic-capture").apply { start() }
     }
 
+    /**
+     * Stops capturing. If the thread does not end within the join timeout it still stops by
+     * itself: its own flag stays false even when [start] is called again right away.
+     */
     fun stop() {
-        running = false
+        active?.set(false)
+        active = null
         thread?.join(500)
         thread = null
         lastRmsDb = SILENCE_DB
     }
 
-    private fun loop(record: AudioRecord, chunk: Int) {
+    private fun loop(record: AudioRecord, chunk: Int, running: AtomicBoolean) {
         val buffer = ShortArray(chunk)
         try {
             record.startRecording()
-            while (running) {
+            while (running.get()) {
                 val n = record.read(buffer, 0, buffer.size)
                 if (n <= 0) continue
                 lastRmsDb = rmsDb(buffer, n)

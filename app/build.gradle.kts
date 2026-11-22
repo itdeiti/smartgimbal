@@ -25,7 +25,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 removes unused code and resources (the debug-only logging with it).
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 

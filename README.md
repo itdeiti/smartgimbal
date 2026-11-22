@@ -36,7 +36,15 @@ scripts/fetch-vosk-model.sh   # downloads the German Vosk model (46.5 MB), verif
 ```
 
 The Vosk model is bundled into the APK but not stored in git; the build stops with a hint if it
-is missing. The debug APK is about 110 MB, most of it the speech model.
+is missing. The debug APK is about 110 MB, most of it the speech model; a release build
+(`./gradlew :app:assembleRelease`, shrunk with R8, unsigned) is about 74 MB.
+
+Dependencies are checked against the SHA-256 values in `gradle/verification-metadata.xml`. After
+changing a dependency version, regenerate the file:
+
+```bash
+./gradlew --write-verification-metadata sha256 :app:assembleDebug :app:assembleRelease :app:testDebugUnitTest :app:lintDebug
+```
 
 Run the unit tests (protocol, tracker simulation, voice parser):
 
@@ -47,7 +55,7 @@ Run the unit tests (protocol, tracker simulation, voice parser):
 ## Usage
 
 1. Switch on the gimbal and open the app. Grant camera, Bluetooth and microphone access.
-2. Tap **Gimbal verbinden**. The app connects to the first `FY_PocketV_*` it finds.
+2. Tap **Gimbal verbinden**. The app connects to the gimbal it used last time, or to the first `FY_PocketV_*` it finds. Tap again while it says **Verbinde … ✕** to cancel.
 3. Tap **Tracking** or say "Tracking an". The gimbal keeps the green-framed face centred.
 4. Record with the red button or say "Aufnahme starten". Files go to `Movies/SmartGimbal` and `Pictures/SmartGimbal`.
 
@@ -112,6 +120,12 @@ Logs from a running app (handy for tuning):
 ```bash
 adb logcat -s SmartGimbal
 ```
+
+Debug builds only: a release build writes no debug log (it would contain recognised speech and
+the gimbal's Bluetooth address) and hides the raw frame sender on the debug screen.
+
+The app needs no network access. ML Kit's libraries would add the `INTERNET` permission for usage
+metrics; the manifest removes it.
 
 ## Known limitations
 
