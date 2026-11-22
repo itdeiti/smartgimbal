@@ -53,7 +53,7 @@ A5 5A 00 FF 1E 00 00 08 00 01 9D F0 05 00 C7 0A 4F 6D 12   telemetry
 ## Telemetry
 
 - **Fields:** A = tilt, B = roll, C = pan, each in 0.01°.
-- **D:** very likely the battery level in percent: it fell from 80 to 70 over a day of use and jitters by ±1. Not yet checked while charging.
+- **D:** battery level in percent: it fell from 80 to 70 over a day of use, rose by a few points when the charger was connected for a short time, and jitters by ±1.
 - **Status byte** (first payload byte): `2` while the trigger is held (confirmed with two 5 s holds); on release it returns to its previous value. That value is `1` after power-on and `0` after a press of the power button, probably the gimbal mode; which mode is which is not confirmed.
 - **Pan:** wraps at ±180°. Normalise differences to −180…+180.
 - **Pan in follow mode:** pan follows the handle, so "home" centres relative to the handle, not to an absolute angle.
