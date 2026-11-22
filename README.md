@@ -40,6 +40,7 @@ cloud connection.
 - **Offline voice control (German).** Vosk with a fixed command grammar handles recording, photo self-timer, zoom, tracking and home.
 - **Recording.** 4K/30 video with sound while tracking runs (rear camera; the front camera is limited to 1080p).
 - **Photo.** By button, gimbal button or a spoken "Käse", with a self-timer of 3 s, 10 s or none.
+- **Sound feedback.** A tick per second of the countdown, a shutter click, and a blip when the zoom changes, so the camera can be used without watching the screen. The zoom blip stays silent while recording.
 - **Zoom.** 0.67× (ultrawide), 1×, 2× and 4× by voice or button. The tracker adapts its field of view.
 - **Gimbal control.** One-tap connect that prefers the gimbal used last time, manual D-pad, home, live telemetry (pan, tilt, roll).
 - **Gimbal status.** Battery level of the gimbal and whether its trigger is held, shown next to the gimbal's name.

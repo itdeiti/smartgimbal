@@ -41,7 +41,7 @@ data class PhotoState(
  * waits for the rebind. Main thread only; never used while a
  * recording runs (the voice parser and the UI prevent it).
  */
-class PhotoTaker(private val context: Context) {
+class PhotoTaker(private val context: Context, private val sounds: FeedbackSounds) {
 
     private val _state = MutableStateFlow(PhotoState())
     val state: StateFlow<PhotoState> = _state.asStateFlow()
@@ -62,9 +62,11 @@ class PhotoTaker(private val context: Context) {
                 for (s in countdownSeconds downTo 1) {
                     _state.value = PhotoState(countdown = s)
                     vibrate(if (s == 1) LONG_TICK_MS else SHORT_TICK_MS)
+                    sounds.countdownTick(last = s == 1)
                     delay(1_000)
                 }
                 _state.value = PhotoState(countdown = 0)
+                sounds.shutter()
                 val uri = takePicture(controller)
                 _state.value = PhotoState(message = describe(uri))
             } catch (e: CancellationException) {
