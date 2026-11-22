@@ -2,6 +2,13 @@
 
 # SmartGimbal
 
+![Status: proof of concept](https://img.shields.io/badge/status-proof%20of%20concept-orange)
+![Platform: Android 13+](https://img.shields.io/badge/platform-Android%2013%2B-3DDC84?logo=android&logoColor=white)
+![Kotlin 2.2](https://img.shields.io/badge/Kotlin-2.2-7F52FF?logo=kotlin&logoColor=white)
+![Network: none](https://img.shields.io/badge/network-none-success)
+![Tested on: Pixel 7](https://img.shields.io/badge/tested%20on-Pixel%207-4285F4?logo=google&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 Face tracking and offline voice control for the **FeiyuTech VLOG pocket** gimbal, as a native
 Android app. The phone in the clamp films, detects your face, steers the gimbal over Bluetooth to
 keep you in frame, and listens for spoken commands such as "Aufnahme starten" or "Käse", without a
@@ -9,6 +16,23 @@ cloud connection.
 
 > **Unofficial project.** Not affiliated with or endorsed by FeiyuTech. The Bluetooth protocol is
 > reverse-engineered and incomplete; use at your own risk.
+
+> **Quick proof of concept.** Built in a short time to see whether it works, not a polished
+> product. It has been tested with exactly one phone, a Google Pixel 7, and one gimbal. Expect
+> rough edges and device-specific behaviour on anything else.
+
+## Why
+
+- **No vendor app with a long list of permissions.** The gimbal is meant to be used with the
+  manufacturer's app, which comes from China and asks for far more access to the phone than
+  steering a gimbal needs. This app asks only for what it uses: camera, microphone, Bluetooth
+  and vibration.
+- **No data on someone else's servers.** Camera pictures, the microphone signal and face
+  detection stay on the phone. The app has no network permission at all, so it cannot send
+  anything anywhere, and you can check that in the manifest and in the source.
+- **Voice commands.** The other goal was hands-free control: standing in front of the camera,
+  saying "Aufnahme starten" or "Käse" is the practical way to operate it. Recognition runs
+  offline on the phone.
 
 ## Features
 
@@ -26,7 +50,7 @@ cloud connection.
 ## Requirements
 
 - **Gimbal:** FeiyuTech VLOG pocket. It advertises as `FY_PocketV_xx`.
-- **Phone:** Android 13 or newer, 64-bit ARM. Developed and tested on a Google Pixel 7 with Android 17.
+- **Phone:** Android 13 or newer, 64-bit ARM. Developed and tested only on a Google Pixel 7 with Android 17.
   - Tracker tuning and camera behaviour are device-specific. Other phones will work but may need retuning in the debug screen.
 - **Build:** JDK 17 and the Android SDK (compile SDK 36).
 
@@ -153,9 +177,9 @@ metrics; the manifest removes it.
 
 - **Voice:** German only; the small model works best within a few metres. Several commands in one breath are ignored, so pause between them.
 - **Camera:** The front camera records at most 1080p and has no ultrawide.
-- **Protocol:** Gimbal modes and holder rotation are not reverse-engineered yet. The battery level is inferred from a status byte that fell from 80 to 70 over a day of use; it has not been checked while charging.
+- **Protocol:** Gimbal modes and holder rotation are not reverse-engineered yet. The battery level is inferred from a status byte: it fell from 80 to 70 over a day of use and rose again when the charger was connected. It is a rough value, not an exact percentage.
 - **Gimbal buttons:** Only the thumb button reports its presses. A double or triple press of the trigger leaves no trace the app could react to.
-- **Device-specific:** Tuning is device-specific (tested on one Pixel 7 and one VLOG pocket).
+- **Proof of concept, one test device:** Everything was tested only on one Pixel 7 and one VLOG pocket. Tuning, camera stream combinations and layout are device-specific.
 
 ## Credits and third-party licenses
 

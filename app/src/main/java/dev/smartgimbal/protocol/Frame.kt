@@ -95,8 +95,8 @@ enum class ButtonPress(val code: Int, val label: String) {
  * `status | A int16 | B int16 | C int16 | D u8`.
  *
  * Confirmed 2026-11-22: A = tilt, B = roll, C = pan, all in 0.01°. D fell from 80 to 70 over a
- * day of use, so it is very likely the battery level in percent (not yet checked while
- * charging). Tilt stops at about +27° / -32° in raw A terms.
+ * day of use and rose again when the charger was connected, so it is the battery level in
+ * percent. Tilt stops at about +27° / -32° in raw A terms.
  */
 data class Telemetry(
     val status: Int,
