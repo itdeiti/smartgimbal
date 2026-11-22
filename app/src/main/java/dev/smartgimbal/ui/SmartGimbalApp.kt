@@ -9,7 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.smartgimbal.GimbalViewModel
 
-private enum class Screen { CAMERA, DEBUG }
+private enum class Screen { CAMERA, DEBUG, HELP }
 
 /** Two screens sharing one [dev.smartgimbal.gimbal.GimbalSession]: camera (main) and debug. */
 @Composable
@@ -23,7 +23,12 @@ fun SmartGimbalApp(vm: GimbalViewModel = viewModel()) {
             useFrontCamera = useFrontCamera,
             onToggleCamera = { useFrontCamera = !useFrontCamera },
             onOpenDebug = { screen = Screen.DEBUG },
+            onOpenHelp = { screen = Screen.HELP },
         )
+        Screen.HELP -> {
+            BackHandler { screen = Screen.CAMERA }
+            HelpScreen(onBack = { screen = Screen.CAMERA })
+        }
         Screen.DEBUG -> {
             BackHandler { screen = Screen.CAMERA }
             DebugScreen(

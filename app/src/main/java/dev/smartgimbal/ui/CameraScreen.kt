@@ -84,6 +84,7 @@ fun CameraScreen(
     useFrontCamera: Boolean,
     onToggleCamera: () -> Unit,
     onOpenDebug: () -> Unit,
+    onOpenHelp: () -> Unit,
 ) {
     val context = LocalContext.current
     var granted by remember { mutableStateOf(context.hasAll(REQUIRED_PERMISSIONS)) }
@@ -92,7 +93,7 @@ fun CameraScreen(
     ) { granted = context.hasAll(REQUIRED_PERMISSIONS) }
 
     if (granted) {
-        CameraContent(vm, useFrontCamera, onToggleCamera, onOpenDebug)
+        CameraContent(vm, useFrontCamera, onToggleCamera, onOpenDebug, onOpenHelp)
     } else {
         PermissionGate(onRequest = { launcher.launch(REQUIRED_PERMISSIONS + OPTIONAL_PERMISSIONS) })
     }
@@ -122,6 +123,7 @@ private fun CameraContent(
     useFront: Boolean,
     onToggleCamera: () -> Unit,
     onOpenDebug: () -> Unit,
+    onOpenHelp: () -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -268,6 +270,8 @@ private fun CameraContent(
                 active = zoomLevel != ZoomLevel.NORMAL,
                 onClick = { vm.setZoomLevel(zoomLevel.next(frontCamera = useFront)) },
             )
+            Spacer(Modifier.width(8.dp))
+            OverlayButton("?", enabled = !busy, onClick = { if (!busy) onOpenHelp() })
             Spacer(Modifier.width(8.dp))
             OverlayButton("Debug", enabled = !busy, onClick = openDebug)
         }

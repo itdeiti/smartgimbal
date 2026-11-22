@@ -2,27 +2,39 @@ package dev.smartgimbal.voice
 
 import dev.smartgimbal.camera.ZoomLevel
 
-/** Spoken commands; the recognised text must match one of the [phrases] exactly. */
-enum class VoiceCommand(val label: String, vararg val phrases: String) {
-    START_RECORDING("Aufnahme starten", "aufnahme starten"),
+/**
+ * Spoken commands; the recognised text must match one of the [phrases] exactly.
+ * [help] is shown on the help screen, so the list there always matches what is recognised.
+ */
+enum class VoiceCommand(val label: String, val help: String, vararg val phrases: String) {
+    START_RECORDING("Aufnahme starten", "Startet die Videoaufnahme.", "aufnahme starten"),
 
     // "Aufnahme stoppen" must be in the grammar: without it Vosk heard the closest phrase,
     // "starten" (voice test 2026-11-22). "stoppen" / "abbrechen" alone cancel the self-timer
     // naturally; a lone "stoppen" was ignored in the photo test.
-    STOP("Stopp", "stopp", "aufnahme stopp", "aufnahme stoppen", "stoppen", "abbrechen"),
-    TRACKING_ON("Tracking an", "tracking an"),
-    TRACKING_OFF("Tracking aus", "tracking aus"),
+    STOP(
+        "Stopp",
+        "Beendet die Aufnahme. Läuft der Foto-Countdown, wird er abgebrochen.",
+        "stopp", "aufnahme stopp", "aufnahme stoppen", "stoppen", "abbrechen",
+    ),
+    TRACKING_ON("Tracking an", "Der Gimbal folgt dem Gesicht im grünen Rahmen. Braucht einen verbundenen Gimbal.", "tracking an"),
+    TRACKING_OFF("Tracking aus", "Schaltet das Face-Tracking aus.", "tracking aus"),
 
     // "gimbal" is not in the German model's vocabulary, hence "kamera zurück" for Home.
-    HOME("Kamera zurück", "kamera zurück"),
+    HOME("Kamera zurück", "Fährt den Gimbal in die Mittelstellung. Braucht einen verbundenen Gimbal.", "kamera zurück"),
 
     // "cheese" is not in the vocabulary either; a spoken "cheese" lands on "käse" (confirmed).
-    PHOTO("Käse – Foto in 3 s", "käse"),
-    WIDE_ON("Weitwinkel an", "weitwinkel an"),
-    WIDE_OFF("Weitwinkel aus", "weitwinkel aus"),
-    ZOOM_2("Zoom 2×", "zoom zwei"),
-    ZOOM_4("Zoom 4×", "zoom vier"),
-    ZOOM_OFF("Zoom aus", "zoom aus", "zoom normal"),
+    PHOTO(
+        "Käse – Foto in 3 s",
+        "Selbstauslöser: nach 3 Sekunden Countdown wird ein Foto gemacht. Nur ohne laufende Aufnahme. " +
+            "„Cheese“ funktioniert auch.",
+        "käse",
+    ),
+    WIDE_ON("Weitwinkel an", "Ultraweitwinkel (0,7×) der Hauptkamera. Die Frontkamera hat keinen.", "weitwinkel an"),
+    WIDE_OFF("Weitwinkel aus", "Zurück auf 1×.", "weitwinkel aus"),
+    ZOOM_2("Zoom 2×", "Zweifach-Zoom.", "zoom zwei"),
+    ZOOM_4("Zoom 4×", "Vierfach-Zoom (digital).", "zoom vier"),
+    ZOOM_OFF("Zoom aus", "Zurück auf 1×.", "zoom aus", "zoom normal"),
     ;
 
     companion object {
