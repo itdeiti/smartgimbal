@@ -4,12 +4,16 @@ import android.bluetooth.BluetoothAdapter
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import android.util.Size
+import android.content.res.Configuration
+import android.os.PowerManager
+import android.util.Log
+import android.util.Range
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.resolutionselector.AspectRatioStrategy
-import androidx.camera.core.resolutionselector.ResolutionSelector
-import androidx.camera.core.resolutionselector.ResolutionStrategy
+import androidx.camera.core.DynamicRange
+import androidx.camera.video.FallbackStrategy
+import androidx.camera.video.Recorder
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
 import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
@@ -21,6 +25,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -44,15 +49,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.smartgimbal.ble.LinkState
 import dev.smartgimbal.gimbal.CommandSource
 import dev.smartgimbal.GimbalViewModel
+import dev.smartgimbal.camera.PreviewFrameGrabber
+import dev.smartgimbal.camera.RecordingState
+import dev.smartgimbal.camera.VideoRecorder
 import dev.smartgimbal.gimbal.GimbalSession
 
 /** Main screen: full-screen camera preview with gimbal status and controls on top. */
@@ -111,28 +122,39 @@ private fun CameraContent(
     val frame by faces.frame.collectAsStateWithLifecycle()
     val stats by faces.stats.collectAsStateWithLifecycle()
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
+    val recorder = remember { VideoRecorder(context) }
+    val rec by recorder.state.collectAsStateWithLifecycle()
 
-    // Preview + analysis; video capture is added in step 5.
+    // Only preview + video: that pair runs in 4K/30 on the Pixel 7. A third (analysis) stream would
+    // force 1080p, so face detection reads copies of the preview instead (PreviewFrameGrabber).
+    val grabber = remember { PreviewFrameGrabber(faces) }
     val controller = remember {
         LifecycleCameraController(context).apply {
-            setEnabledUseCases(CameraController.IMAGE_ANALYSIS)
-            imageAnalysisBackpressureStrategy = ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
-            imageAnalysisResolutionSelector = ResolutionSelector.Builder()
-                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
-                .setResolutionStrategy(
-                    ResolutionStrategy(Size(640, 480), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER),
-                )
-                .build()
+            setEnabledUseCases(CameraController.VIDEO_CAPTURE)
+            videoCaptureQualitySelector = QualitySelector.fromOrderedList(
+                listOf(Quality.UHD, Quality.FHD),
+                FallbackStrategy.lowerQualityOrHigherThan(Quality.FHD),
+            )
+            videoCaptureTargetFrameRate = Range(30, 30)
         }
     }
 
     DisposableEffect(lifecycleOwner) {
-        controller.setImageAnalysisAnalyzer(faces.executor, faces.analyzer)
         controller.bindToLifecycle(lifecycleOwner)
         // Leaving the screen (e.g. to debug) releases the camera.
         onDispose {
-            controller.clearImageAnalysisAnalyzer()
+            recorder.stop()
             controller.unbind()
+            grabber.release()
+        }
+    }
+    // Feeds face detection with preview copies; skips frames while the detector is busy.
+    LaunchedEffect(previewView, useFront) {
+        val view = previewView ?: return@LaunchedEffect
+        while (isActive) {
+            delay(GRAB_INTERVAL_MS)
+            // The preview of the front camera is mirrored; the tracker un-mirrors it.
+            grabber.grab(view, mirrored = useFront)
         }
     }
     LaunchedEffect(useFront) {
@@ -140,14 +162,19 @@ private fun CameraContent(
             if (useFront) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
         faces.reset()
         vm.setCamera(useFront)
+        logVideoCapabilities(controller)
     }
 
+    // The controller crops every output to the preview's aspect ratio. A 16:9 preview (letterboxed
+    // like in camera apps) keeps the recording at full 16:9 and shows exactly what is recorded.
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     Box(Modifier.fillMaxSize().background(Color.Black)) {
+      Box(Modifier.align(Alignment.Center).aspectRatio(if (landscape) 16f / 9f else 9f / 16f)) {
         AndroidView(
             factory = { ctx ->
                 PreviewView(ctx).apply {
                     scaleType = PreviewView.ScaleType.FILL_CENTER
-                    // The overlay needs PreviewView.outputTransform, which requires COMPATIBLE mode.
+                    // TextureView (COMPATIBLE) is needed for the cheap preview copies.
                     implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                     this.controller = controller
                     previewView = this
@@ -156,12 +183,8 @@ private fun CameraContent(
             modifier = Modifier.fillMaxSize(),
         )
 
-        FaceOverlay(
-            frame = frame,
-            previewView = previewView,
-            showCenter = trackingEnabled,
-            modifier = Modifier.fillMaxSize(),
-        )
+        FaceOverlay(frame = frame, showCenter = trackingEnabled, modifier = Modifier.fillMaxSize())
+      }
 
         Text(
             text = "%d %s · %s %.0f ms · %.0f fps".format(
@@ -182,13 +205,36 @@ private fun CameraContent(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         )
 
+        // Leaving the screen would release the camera and cut the recording.
+        val openDebug = { if (!rec.recording) onOpenDebug() }
         Row(
             Modifier.align(Alignment.TopCenter).fillMaxWidth().systemBarsPadding().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            GimbalChip(session, onOpenDebug)
+            GimbalChip(session, openDebug)
             Spacer(Modifier.weight(1f))
-            OverlayButton("Debug", onClick = onOpenDebug)
+            if (rec.recording) RecordingBadge(rec)
+            Spacer(Modifier.weight(1f))
+            OverlayButton("Debug", enabled = !rec.recording, onClick = openDebug)
+        }
+
+        rec.message?.let { message ->
+            LaunchedEffect(message) {
+                delay(4_000)
+                recorder.clearMessage()
+            }
+            Text(
+                message,
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .systemBarsPadding()
+                    .padding(bottom = 128.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
         }
 
         Row(
@@ -196,8 +242,12 @@ private fun CameraContent(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OverlayButton(if (useFront) "Hauptkamera" else "Frontkamera", onClick = onToggleCamera)
-            RecordButton(enabled = false, onClick = {}) // step 5
+            OverlayButton(
+                if (useFront) "Hauptkamera" else "Frontkamera",
+                enabled = !rec.recording,
+                onClick = onToggleCamera,
+            )
+            RecordButton(recording = rec.recording, onClick = { recorder.toggle(controller) })
             OverlayButton(
                 text = if (trackingEnabled) "Tracking an" else "Tracking aus",
                 active = trackingEnabled,
@@ -272,16 +322,55 @@ private fun OverlayButton(text: String, onClick: () -> Unit, enabled: Boolean = 
     }
 }
 
+/** Up to 30 copies per second (skipped while the detector is busy); each costs ~3 ms on the main thread. */
+private const val GRAB_INTERVAL_MS = 33L
+
+/** Logs which video qualities the bound camera offers, to see why 4K may fall back. */
+private suspend fun logVideoCapabilities(controller: LifecycleCameraController) {
+    // cameraInfo is only available once the controller has bound the camera.
+    repeat(20) {
+        val info = controller.cameraInfo
+        if (info != null) {
+            val qualities = Recorder.getVideoCapabilities(info).getSupportedQualities(DynamicRange.SDR)
+            Log.d(GimbalSession.LOG_TAG, "VIDEO supported=$qualities")
+            return
+        }
+        delay(100)
+    }
+}
+
+/** Red dot to start; while recording a smaller red square to stop. */
 @Composable
-private fun RecordButton(enabled: Boolean, onClick: () -> Unit) {
+private fun RecordButton(recording: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
             .size(76.dp)
-            .alpha(if (enabled) 1f else 0.4f)
             .border(4.dp, Color.White, CircleShape)
-            .padding(8.dp)
             .clip(CircleShape)
-            .background(Color(0xFFE53935))
-            .clickable(enabled = enabled, onClick = onClick),
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(if (recording) 30.dp else 60.dp)
+                .clip(if (recording) RoundedCornerShape(6.dp) else CircleShape)
+                .background(Color(0xFFE53935)),
+        )
+    }
+}
+
+@Composable
+private fun RecordingBadge(rec: RecordingState) {
+    val seconds = rec.durationMillis / 1000
+    val hot = rec.thermalStatus >= PowerManager.THERMAL_STATUS_SEVERE
+    val text = "● %02d:%02d".format(seconds / 60, seconds % 60) + if (hot) " · Gerät heiß" else ""
+    Text(
+        text,
+        color = Color.White,
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(Color(0xFFE53935).copy(alpha = if (hot) 1f else 0.85f))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
     )
 }

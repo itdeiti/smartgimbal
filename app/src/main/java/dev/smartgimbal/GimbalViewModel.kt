@@ -11,6 +11,7 @@ import dev.smartgimbal.tracking.FaceFrame
 import dev.smartgimbal.tracking.FacePipeline
 import dev.smartgimbal.tracking.FaceTracker
 import dev.smartgimbal.tracking.Fov
+import dev.smartgimbal.tracking.NormBox
 import dev.smartgimbal.tracking.TrackingOutput
 import dev.smartgimbal.tracking.TrackingSettings
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -74,8 +75,11 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
 
         val setup = camera
         val tiltDeg = session.telemetry.value?.let { it.tilt / 100.0 }
+        // Faces arrive in display coordinates; the front preview is mirrored, the tracker's
+        // geometry is not.
+        val box = frame.target?.box?.let { if (frame.mirrored) NormBox(1 - it.right, it.top, 1 - it.left, it.bottom) else it }
         val output = tracker.update(
-            target = frame.target?.box,
+            target = box,
             imageWidth = frame.imageWidth,
             imageHeight = frame.imageHeight,
             fov = setup.fov,

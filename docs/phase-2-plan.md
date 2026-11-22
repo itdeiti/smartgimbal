@@ -13,6 +13,8 @@ Stand: 2026-11-22, nach Abschluss von Phase 1 (Commit `879bd05`).
 
 ## Technische Leitplanken
 
+> **Update 2026-11-22, 4K:** Preview, YUV-Analyse und UHD-Video zusammen sind auf dem Pixel 7 keine unterstützte Stream-Kombination. CameraX fällt dann auf 1080p zurück, und mit erzwungenem UHD (Stream-Sharing, CameraX 1.6.2) bleibt die Kamera schwarz. Lösung: Die Kamera liefert nur noch Preview und Video (4K/30 bestätigt). Die Gesichtserkennung bekommt verkleinerte Kopien der angezeigten Preview (`PreviewFrameGrabber`: TextureView-Kopie in Viertelgröße, ~3 ms auf dem Main-Thread, ML Kit ~15 ms, ~23 Bilder/s). Die Box-Koordinaten entsprechen damit direkt der Anzeige. Der Tracker spiegelt die Frontkamera zurück und rechnet mit dem Bildwinkel des 16:9-Zuschnitts. Die Punkte zu `ImageAnalysis.Analyzer` und `CoordinateTransform` unten sind damit überholt.
+
 - **CameraX über `LifecycleCameraController`:** Preview, ImageAnalysis und VideoCapture laufen über einen Controller. Das Umschalten der Kamera ist dann eine Zeile, und Drehung und Spiegelung übernimmt der Controller.
 - **Austauschbarer Gesichtsdetektor:** Ein eigener `ImageAnalysis.Analyzer` übergibt jedes Bild an ein `FaceDetector`-Interface. Regler und Overlay hängen nur an diesem Interface, nicht an ML Kit.
 

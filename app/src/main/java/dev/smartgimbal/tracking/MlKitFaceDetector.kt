@@ -1,7 +1,6 @@
 package dev.smartgimbal.tracking
 
-import android.annotation.SuppressLint
-import androidx.camera.core.ImageProxy
+import android.graphics.Bitmap
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
@@ -23,26 +22,16 @@ class MlKitFaceDetector : FaceDetector {
             .build(),
     )
 
-    @SuppressLint("UnsafeOptInUsageError")
-    override fun detect(image: ImageProxy): List<DetectedFace> {
-        val media = image.image ?: return emptyList()
-        val rotation = image.imageInfo.rotationDegrees
+    override fun detect(bitmap: Bitmap): List<DetectedFace> {
         // Blocking is fine: this runs on the dedicated analysis thread, never on the main thread.
-        val faces = Tasks.await(detector.process(InputImage.fromMediaImage(media, rotation)))
-
-        // ML Kit reports boxes in the rotated (upright) frame.
-        val uprightWidth = if (rotation % 180 == 0) image.width else image.height
-        val uprightHeight = if (rotation % 180 == 0) image.height else image.width
+        val faces = Tasks.await(detector.process(InputImage.fromBitmap(bitmap, 0)))
+        val w = bitmap.width.toFloat()
+        val h = bitmap.height.toFloat()
         return faces.map { face ->
             val b = face.boundingBox
             DetectedFace(
                 trackingId = face.trackingId,
-                box = NormBox(
-                    left = b.left.toFloat() / uprightWidth,
-                    top = b.top.toFloat() / uprightHeight,
-                    right = b.right.toFloat() / uprightWidth,
-                    bottom = b.bottom.toFloat() / uprightHeight,
-                ),
+                box = NormBox(b.left / w, b.top / h, b.right / w, b.bottom / h),
             )
         }
     }

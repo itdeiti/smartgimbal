@@ -15,9 +15,30 @@ class FovTest {
 
     @Test
     fun `portrait frames swap the axes`() {
-        val fov = Fov(70.0, 55.0)
-        assertEquals(70.0 to 55.0, fov.forFrame(640, 480))
-        assertEquals(55.0 to 70.0, fov.forFrame(480, 640))
+        val fov = Fov.fromSensor(4f, 3f, 3f) // exactly 4:3
+        val (h, v) = fov.forFrame(640, 480)
+        assertEquals(fov.longDeg, h, 1e-9)
+        assertEquals(fov.shortDeg, v, 1e-9)
+        val (hp, vp) = fov.forFrame(480, 640)
+        assertEquals(fov.shortDeg, hp, 1e-9)
+        assertEquals(fov.longDeg, vp, 1e-9)
+    }
+
+    @Test
+    fun `16 by 9 crop of a 4 by 3 sensor keeps the long side`() {
+        // Pixel 7 main camera: 71.4 deg on the long side; the 16:9 preview loses top and bottom.
+        val fov = Fov(71.4, 56.9)
+        val (h, v) = fov.forFrame(1080, 1920) // portrait preview
+        assertEquals(71.4, v, 1e-9)
+        assertEquals(44.0, h, 0.2)
+    }
+
+    @Test
+    fun `square crop keeps the short side`() {
+        val fov = Fov.fromSensor(4f, 3f, 3f)
+        val (h, v) = fov.forFrame(500, 500)
+        assertEquals(fov.shortDeg, h, 1e-9)
+        assertEquals(fov.shortDeg, v, 1e-9)
     }
 
     @Test

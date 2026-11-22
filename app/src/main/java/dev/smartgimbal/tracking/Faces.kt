@@ -1,12 +1,12 @@
 package dev.smartgimbal.tracking
 
-import androidx.camera.core.ImageProxy
+import android.graphics.Bitmap
 import java.io.Closeable
 import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Axis-aligned box in the upright analysis frame, normalised to 0..1 (x to the right, y down).
+ * Axis-aligned box in the analysed frame, normalised to 0..1 (x to the right, y down).
  * Plain Kotlin instead of android.graphics.RectF so the tracking logic runs in unit tests.
  */
 data class NormBox(val left: Float, val top: Float, val right: Float, val bottom: Float) {
@@ -37,8 +37,8 @@ interface FaceDetector : Closeable {
     val name: String
 
     /**
-     * Detects faces in [image], blocking. Called on the analysis thread; the caller closes the
-     * image. Boxes are in the upright frame (image rotation applied), normalised to 0..1.
+     * Detects faces in [bitmap], blocking. Called on the analysis thread. The bitmap is upright;
+     * boxes are normalised to its size (0..1).
      */
-    fun detect(image: ImageProxy): List<DetectedFace>
+    fun detect(bitmap: Bitmap): List<DetectedFace>
 }
