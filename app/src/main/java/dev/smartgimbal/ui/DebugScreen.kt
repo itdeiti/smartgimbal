@@ -58,6 +58,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.smartgimbal.ble.FoundDevice
 import dev.smartgimbal.gimbal.GimbalSession
 import dev.smartgimbal.tracking.TrackingSettings
+import dev.smartgimbal.voice.VoiceControl
 import dev.smartgimbal.ble.LinkState
 import dev.smartgimbal.ble.LogEntry
 import dev.smartgimbal.protocol.Telemetry
@@ -77,7 +78,12 @@ private fun hasBlePermissions(context: Context) = BLE_PERMISSIONS.all {
 
 /** Protocol tools from phase 1: connect, D-pad, telemetry, raw frames, log. */
 @Composable
-fun DebugScreen(session: GimbalSession, trackingSettings: TrackingSettings, onBack: () -> Unit) {
+fun DebugScreen(
+    session: GimbalSession,
+    trackingSettings: TrackingSettings,
+    voice: VoiceControl,
+    onBack: () -> Unit,
+) {
     val context = LocalContext.current
     val state by session.client.state.collectAsStateWithLifecycle()
     val devices by session.client.devices.collectAsStateWithLifecycle()
@@ -187,6 +193,8 @@ fun DebugScreen(session: GimbalSession, trackingSettings: TrackingSettings, onBa
                     onReset = trackingSettings::resetToDefaults,
                 )
             }
+
+            item { VoiceCard(voice) }
 
             item {
                 RawSender(enabled = state == LinkState.READY, onSend = session::sendRaw)

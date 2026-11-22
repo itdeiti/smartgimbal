@@ -9,6 +9,7 @@ junit = "4.13.2"
 camerax = "1.6.2"
 mlkitFace = "16.1.7"
 coreKtx = "1.16.0"
+vosk = "0.3.75"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
@@ -27,6 +28,7 @@ androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", versi
 androidx-camera-video = { module = "androidx.camera:camera-video", version.ref = "camerax" }
 androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
+vosk-android = { module = "com.alphacephei:vosk-android", version.ref = "vosk" }
 mlkit-face-detection = { module = "com.google.mlkit:face-detection", version.ref = "mlkitFace" }
 
 [plugins]

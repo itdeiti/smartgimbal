@@ -1,6 +1,7 @@
 package dev.smartgimbal.tracking
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FovTest {
@@ -39,6 +40,17 @@ class FovTest {
         val (h, v) = fov.forFrame(500, 500)
         assertEquals(fov.shortDeg, h, 1e-9)
         assertEquals(fov.shortDeg, v, 1e-9)
+    }
+
+    @Test
+    fun `zoom below 1 widens and above 1 narrows the field of view`() {
+        val fov = Fov(71.4, 56.9)
+        assertEquals(fov, fov.zoomed(1.0))
+        val wide = fov.zoomed(0.67)
+        assertEquals(94.0, wide.longDeg, 0.5)
+        assertTrue(wide.shortDeg > fov.shortDeg)
+        // Zooming back in by the same factor gives the original angle.
+        assertEquals(fov.longDeg, wide.zoomed(1 / 0.67).longDeg, 1e-9)
     }
 
     @Test

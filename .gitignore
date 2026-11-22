@@ -6,3 +6,6 @@ build/
 .DS_Store
 captures/
 .kotlin/
+
+# Vosk model, fetched by scripts/fetch-vosk-model.sh
+/app/src/main/assets/model-de/
