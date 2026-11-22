@@ -8,7 +8,7 @@ Code: [`protocol/`](../app/src/main/java/dev/smartgimbal/protocol).
 
 ## Connection
 
-- The device advertises as `FY_PocketV_xx`.
+- The device advertises as `FY_PocketV_xx`. Its advertisement lists only the generic HID service (`0x1812`), not the UART service, so it can be recognised by name only (checked on `FY_PocketV_3E`).
 - It uses the Nordic UART Service:
   - TX (write, with or without response): `6e400002-b5a3-f393-e0a9-e50e24dcca9e`
   - RX (notify): `6e400003-b5a3-f393-e0a9-e50e24dcca9e`

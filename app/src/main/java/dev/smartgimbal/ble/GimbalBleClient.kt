@@ -18,7 +18,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import androidx.core.content.edit
-import dev.smartgimbal.AppLog
 import dev.smartgimbal.protocol.FeiyuProtocol
 import dev.smartgimbal.protocol.toHex
 import kotlinx.coroutines.CompletableDeferred
@@ -99,6 +98,8 @@ class GimbalBleClient(
         }
         _devices.value = emptyList()
         scanStartMillis = SystemClock.elapsedRealtime()
+        // No ScanFilter: it cannot match a name prefix, and the gimbal advertises only the generic
+        // HID service (0x1812), not the UART service, so a service filter would not single it out.
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
         scanner.startScan(null, settings, scanCallback)
         _state.value = LinkState.SCANNING
@@ -119,11 +120,6 @@ class GimbalBleClient(
             val name = result.scanRecord?.deviceName ?: result.device.name ?: return
             if (!name.startsWith(FeiyuProtocol.DEVICE_NAME_PREFIX)) return
             val found = FoundDevice(name, result.device.address, result.rssi)
-            // A ScanFilter cannot match a name prefix, only a service UUID. This line shows what
-            // the gimbal advertises, to decide whether such a filter is possible.
-            if (_devices.value.none { it.address == found.address }) {
-                AppLog.d { "SCAN ${found.name} services=${result.scanRecord?.serviceUuids} connectable=${result.isConnectable}" }
-            }
             _devices.update { list ->
                 (list.filterNot { it.address == found.address } + found).sortedBy { it.name }
             }
@@ -248,6 +244,7 @@ class GimbalBleClient(
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+            if (g !== gatt) return // cancelled while discovering
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 log(LogEntry.error("Service-Suche fehlgeschlagen: status=$status"))
                 g.disconnect()
@@ -278,7 +275,7 @@ class GimbalBleClient(
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-            if (descriptor.uuid != FeiyuProtocol.CCCD_UUID) return
+            if (g !== gatt || descriptor.uuid != FeiyuProtocol.CCCD_UUID) return
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 log(LogEntry.info("Notifications aktiv"))
             } else {

@@ -4,6 +4,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.content.res.Configuration
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Range
 import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
@@ -359,8 +360,18 @@ private fun GimbalChip(session: GimbalSession, onOpenDebug: () -> Unit) {
         // Tapping while connecting cancels the attempt.
         LinkState.CONNECTING, LinkState.DISCOVERING -> session.client::disconnect
     }
+    // The chip changes its meaning as soon as it is tapped (connect, then cancel), so the second
+    // tap of an accidental double tap must not count.
+    val lastTap = remember { longArrayOf(0L) }
+    val guardedClick = {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastTap[0] >= CHIP_TAP_GUARD_MS) {
+            lastTap[0] = now
+            onClick()
+        }
+    }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        OverlayButton(label, onClick = onClick)
+        OverlayButton(label, onClick = guardedClick)
         if (state == LinkState.READY) {
             Spacer(Modifier.width(8.dp))
             OverlayButton("Home", onClick = session::home)
@@ -384,6 +395,8 @@ private fun OverlayButton(text: String, onClick: () -> Unit, enabled: Boolean = 
 
 /** Up to 30 copies per second (skipped while the detector is busy); each costs ~3 ms on the main thread. */
 private const val GRAB_INTERVAL_MS = 33L
+
+private const val CHIP_TAP_GUARD_MS = 800L
 
 /** Face boxes over the preview. Reads the frame here, so a new frame redraws only this layer. */
 @Composable
