@@ -2,8 +2,8 @@ package dev.smartgimbal.tracking
 
 import android.graphics.Bitmap
 import android.os.SystemClock
-import android.util.Log
-import dev.smartgimbal.gimbal.GimbalSession
+import dev.smartgimbal.AppLog
+import dev.smartgimbal.RollingAverage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -58,8 +58,8 @@ class FacePipeline(private val detector: FaceDetector = MlKitFaceDetector()) {
     @Volatile var frameListener: ((FaceFrame) -> Unit)? = null
 
     @Volatile private var resetRequested = false
-    private var avgMillis = 0f
-    private var avgIntervalMillis = 0f
+    private val avgMillis = RollingAverage()
+    private val avgIntervalMillis = RollingAverage()
     private var lastFrameMillis = 0L
     private var frameCount = 0L
 
@@ -113,7 +113,7 @@ class FacePipeline(private val detector: FaceDetector = MlKitFaceDetector()) {
         val faces = try {
             detector.detect(bitmap)
         } catch (e: Exception) {
-            Log.w(GimbalSession.LOG_TAG, "Face detection failed", e)
+            AppLog.w("Face detection failed", e)
             emptyList()
         }
         val now = SystemClock.elapsedRealtime()
@@ -132,28 +132,24 @@ class FacePipeline(private val detector: FaceDetector = MlKitFaceDetector()) {
     }
 
     private fun updateStats(analysisMillis: Long, now: Long) {
-        avgMillis = if (frameCount == 0L) analysisMillis.toFloat() else avgMillis * 0.9f + analysisMillis * 0.1f
-        if (lastFrameMillis != 0L) {
-            val interval = (now - lastFrameMillis).toFloat()
-            avgIntervalMillis = if (avgIntervalMillis == 0f) interval else avgIntervalMillis * 0.9f + interval * 0.1f
-        }
+        avgMillis.add(analysisMillis.toFloat())
+        if (lastFrameMillis != 0L) avgIntervalMillis.add((now - lastFrameMillis).toFloat())
         lastFrameMillis = now
         frameCount++
         if (frameCount % STATS_EVERY_N_FRAMES == 0L) {
-            val fps = if (avgIntervalMillis > 0f) 1000f / avgIntervalMillis else 0f
-            _stats.value = AnalysisStats(detector.name, avgMillis, fps)
+            val fps = if (avgIntervalMillis.value > 0f) 1000f / avgIntervalMillis.value else 0f
+            _stats.value = AnalysisStats(detector.name, avgMillis.value, fps)
         }
     }
 
     /** One line per frame in logcat, for tuning from recorded data. */
     private fun logFrame(frame: FaceFrame, analysisMillis: Long) {
-        val t = frame.target
-        val targetText = if (t == null) "-" else
-            "id=%s cx=%.3f cy=%.3f w=%.3f".format(Locale.ROOT, t.trackingId, t.box.centerX, t.box.centerY, t.box.width)
-        Log.d(
-            GimbalSession.LOG_TAG,
-            "FACE n=${frame.faces.size} ms=$analysisMillis ${frame.imageWidth}x${frame.imageHeight} target=$targetText",
-        )
+        AppLog.d {
+            val t = frame.target
+            val targetText = if (t == null) "-" else
+                "id=%s cx=%.3f cy=%.3f w=%.3f".format(Locale.ROOT, t.trackingId, t.box.centerX, t.box.centerY, t.box.width)
+            "FACE n=${frame.faces.size} ms=$analysisMillis ${frame.imageWidth}x${frame.imageHeight} target=$targetText"
+        }
     }
 
     fun close() {

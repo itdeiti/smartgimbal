@@ -1,19 +1,18 @@
 package dev.smartgimbal.camera
 
-import android.content.ContentValues
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.VibrationEffect
-import android.os.VibratorManager
 import android.provider.MediaStore
-import android.util.Log
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.view.CameraController
-import dev.smartgimbal.gimbal.GimbalSession
+import dev.smartgimbal.AppLog
+import dev.smartgimbal.vibrate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,9 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -60,8 +57,7 @@ class PhotoTaker(private val context: Context) {
         if (isCountingDown) return
         job = scope.launch {
             try {
-                controller.setEnabledUseCases(CameraController.IMAGE_CAPTURE)
-                controller.setZoomRatio(zoomRatio())
+                switchTo(CameraController.IMAGE_CAPTURE, controller, zoomRatio)
                 for (s in COUNTDOWN_SECONDS downTo 1) {
                     _state.value = PhotoState(countdown = s)
                     vibrate(if (s == 1) LONG_TICK_MS else SHORT_TICK_MS)
@@ -72,14 +68,13 @@ class PhotoTaker(private val context: Context) {
                 _state.value = PhotoState(message = describe(uri))
             } catch (e: CancellationException) {
                 _state.value = PhotoState(message = "Selbstauslöser abgebrochen")
-                Log.d(GimbalSession.LOG_TAG, "PHOTO cancelled")
+                AppLog.d { "PHOTO cancelled" }
                 throw e
             } catch (e: Exception) {
                 _state.value = PhotoState(message = "Foto fehlgeschlagen: ${e.message}")
-                Log.w(GimbalSession.LOG_TAG, "PHOTO failed", e)
+                AppLog.w("PHOTO failed", e)
             } finally {
-                controller.setEnabledUseCases(CameraController.VIDEO_CAPTURE)
-                controller.setZoomRatio(zoomRatio())
+                switchTo(CameraController.VIDEO_CAPTURE, controller, zoomRatio)
                 _state.update { it.copy(countdown = null) }
             }
         }
@@ -89,15 +84,16 @@ class PhotoTaker(private val context: Context) {
         job?.cancel()
     }
 
+    /** The controller rebinds the camera on a mode switch, which resets the zoom. */
+    private fun switchTo(useCases: Int, controller: CameraController, zoomRatio: () -> Float) {
+        controller.setEnabledUseCases(useCases)
+        controller.setZoomRatio(zoomRatio())
+    }
+
     fun clearMessage() = _state.update { it.copy(message = null) }
 
     private suspend fun takePicture(controller: CameraController): Uri = suspendCancellableCoroutine { cont ->
-        val name = "SmartGimbal_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(Date())
-        val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, name)
-            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/SmartGimbal")
-        }
+        val values = mediaValues(newMediaName(), "image/jpeg", "Pictures/SmartGimbal")
         val output = ImageCapture.OutputFileOptions
             .Builder(context.contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
             .build()
@@ -115,18 +111,16 @@ class PhotoTaker(private val context: Context) {
         )
     }
 
-    /** Reads the saved photo's size and logs it, like the video check. */
-    private fun describe(uri: Uri): String {
+    /** Reads the saved photo's size (file access, so off the main thread) and logs it. */
+    private suspend fun describe(uri: Uri): String = withContext(Dispatchers.IO) {
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-        Log.d(GimbalSession.LOG_TAG, "PHOTO done ${options.outWidth}x${options.outHeight} $uri")
-        return "Foto gespeichert: ${options.outWidth}×${options.outHeight}"
+        AppLog.d { "PHOTO done ${options.outWidth}x${options.outHeight} $uri" }
+        "Foto gespeichert: ${options.outWidth}×${options.outHeight}"
     }
 
-    private fun vibrate(millis: Long) {
-        val vibrator = context.getSystemService(VibratorManager::class.java)?.defaultVibrator ?: return
-        vibrator.vibrate(VibrationEffect.createOneShot(millis, VibrationEffect.DEFAULT_AMPLITUDE))
-    }
+    private fun vibrate(millis: Long) =
+        context.vibrate(VibrationEffect.createOneShot(millis, VibrationEffect.DEFAULT_AMPLITUDE))
 
     private companion object {
         const val COUNTDOWN_SECONDS = 3

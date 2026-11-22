@@ -2,7 +2,8 @@ package dev.smartgimbal.gimbal
 
 import android.content.Context
 import android.os.SystemClock
-import android.util.Log
+import dev.smartgimbal.AppLog
+import dev.smartgimbal.BuildConfig
 import dev.smartgimbal.ble.GimbalBleClient
 import dev.smartgimbal.ble.LogEntry
 import dev.smartgimbal.protocol.FeiyuProtocol
@@ -97,8 +98,10 @@ class GimbalSession(context: Context, private val scope: CoroutineScope) {
     /**
      * Sends a hand-written frame, for exploring unknown commands.
      * With [appendCrc] the input must start with `A5 5A` and leave out the CRC.
+     * Debug builds only: an unknown command could do anything to the gimbal's firmware.
      */
     fun sendRaw(hex: String, appendCrc: Boolean) {
+        if (!BuildConfig.DEBUG) return
         val frame = try {
             val bytes = parseHex(hex)
             if (appendCrc) FeiyuProtocol.withCrc(bytes) else bytes
@@ -114,10 +117,12 @@ class GimbalSession(context: Context, private val scope: CoroutineScope) {
 
     /**
      * Sends the arbitrated command every [SEND_INTERVAL_MS] ms. When it turns into a stop, a zero
-     * frame goes out twice so the gimbal stops even if one frame is lost.
+     * frame goes out twice so the gimbal stops even if one frame is lost. The interval is measured
+     * between starts, so the time a write takes does not lower the rate.
      */
     private suspend fun sendLoop() {
         var wasMoving = false
+        var nextMillis = SystemClock.elapsedRealtime()
         while (scope.isActive) {
             val (command, source) = arbiter.current(SystemClock.elapsedRealtime())
             _activeSource.value = source.takeUnless { command.isStop }
@@ -128,7 +133,11 @@ class GimbalSession(context: Context, private val scope: CoroutineScope) {
                 repeat(2) { client.send(FeiyuProtocol.move(0, 0), logIt = true) }
                 wasMoving = false
             }
-            delay(SEND_INTERVAL_MS)
+            nextMillis += SEND_INTERVAL_MS
+            val now = SystemClock.elapsedRealtime()
+            // Fell behind (slow write): start a fresh interval instead of sending a burst.
+            if (nextMillis <= now) nextMillis = now + 1
+            delay(nextMillis - now)
         }
     }
 
@@ -183,10 +192,9 @@ class GimbalSession(context: Context, private val scope: CoroutineScope) {
             _telemetry.value = telemetry
             _telemetryCount.update { it + 1 }
             // Always in logcat so test runs can be analysed; in the UI log only on request.
-            Log.d(
-                LOG_TAG,
-                "TELEM pan=${telemetry.pan} tilt=${telemetry.tilt} roll=${telemetry.roll} d=${telemetry.d} s=${telemetry.status}",
-            )
+            AppLog.d {
+                "TELEM pan=${telemetry.pan} tilt=${telemetry.tilt} roll=${telemetry.roll} d=${telemetry.d} s=${telemetry.status}"
+            }
             if (_logTelemetry.value) appendLog(LogEntry.of(LogEntry.Kind.RX, bytes.toHex()), mirror = false)
             return
         }
@@ -205,8 +213,13 @@ class GimbalSession(context: Context, private val scope: CoroutineScope) {
 
     private fun appendLog(entry: LogEntry, mirror: Boolean = true) {
         // Mirror to logcat so test sessions can be read with `adb logcat -s SmartGimbal`.
-        if (mirror) Log.d(LOG_TAG, "${entry.kind.name.padEnd(5)} ${entry.text}")
-        _log.update { (listOf(entry) + it).take(MAX_LOG_ENTRIES) }
+        if (mirror) AppLog.d { "${entry.kind.name.padEnd(5)} ${entry.text}" }
+        _log.update { old ->
+            buildList(minOf(old.size + 1, MAX_LOG_ENTRIES)) {
+                add(entry)
+                addAll(if (old.size >= MAX_LOG_ENTRIES) old.subList(0, MAX_LOG_ENTRIES - 1) else old)
+            }
+        }
     }
 
     fun close() {
@@ -220,7 +233,6 @@ class GimbalSession(context: Context, private val scope: CoroutineScope) {
         const val SEND_INTERVAL_MS = 50L
         const val DEFAULT_STRENGTH = 200
         const val MAX_STRENGTH = 1000
-        const val LOG_TAG = "SmartGimbal"
         private const val MAX_LOG_ENTRIES = 500
     }
 }

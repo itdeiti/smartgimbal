@@ -1,8 +1,7 @@
 package dev.smartgimbal.voice
 
 import android.content.Context
-import android.util.Log
-import dev.smartgimbal.gimbal.GimbalSession
+import dev.smartgimbal.AppLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,8 +27,11 @@ class VoiceEngine(
     private val _state = MutableStateFlow(State.IDLE)
     val state: StateFlow<State> = _state.asStateFlow()
 
+    /** Guards the native objects: audio arrives on the capture thread, [close] runs on the main thread. */
+    private val lock = Any()
     private var model: Model? = null
-    @Volatile private var recognizer: Recognizer? = null
+    private var recognizer: Recognizer? = null
+    private var closed = false
 
     fun load() {
         if (_state.value != State.IDLE) return
@@ -38,24 +40,36 @@ class VoiceEngine(
         StorageService.unpack(
             context, ASSET_DIR, TARGET_DIR,
             { loaded ->
-                model = loaded
-                recognizer = Recognizer(loaded, MicCapture.SAMPLE_RATE.toFloat(), grammarJson()).apply { setWords(true) }
+                synchronized(lock) {
+                    if (closed) {
+                        // Closed while the model was still unpacking: nobody would free it later.
+                        loaded.close()
+                        return@unpack
+                    }
+                    model = loaded
+                    recognizer = Recognizer(loaded, MicCapture.SAMPLE_RATE.toFloat(), grammarJson()).apply { setWords(true) }
+                }
                 _state.value = State.READY
-                Log.d(GimbalSession.LOG_TAG, "VOICE model ready in ${System.currentTimeMillis() - start} ms, grammar=$grammar")
+                AppLog.d { "VOICE model ready in ${System.currentTimeMillis() - start} ms, grammar=$grammar" }
             },
             { error ->
                 _state.value = State.FAILED
-                Log.e(GimbalSession.LOG_TAG, "VOICE model failed: ${error.message}", error)
+                AppLog.e("VOICE model failed: ${error.message}", error)
             },
         )
     }
 
     override fun onAudio(samples: ShortArray, count: Int) {
-        val r = recognizer ?: return
-        if (r.acceptWaveForm(samples, count)) onResult(r.result)
+        // Recognise under the lock so close() cannot free the recogniser mid-call.
+        val json = synchronized(lock) {
+            val r = recognizer ?: return
+            if (r.acceptWaveForm(samples, count)) r.result else null
+        }
+        json?.let(onResult)
     }
 
-    fun close() {
+    fun close() = synchronized(lock) {
+        closed = true
         recognizer?.close()
         recognizer = null
         model?.close()

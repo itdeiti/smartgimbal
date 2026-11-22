@@ -17,6 +17,15 @@
     <!-- Feedback for recognised voice commands. -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- The app is fully offline. ML Kit's transitive datatransport library would add these two
+         for usage metrics; face detection uses the bundled model and does not need them. -->
+    <uses-permission
+        android:name="android.permission.INTERNET"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_NETWORK_STATE"
+        tools:node="remove" />
+
     <uses-feature
         android:name="android.hardware.camera.any"
         android:required="true" />

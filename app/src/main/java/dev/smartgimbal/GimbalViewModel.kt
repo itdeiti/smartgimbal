@@ -1,7 +1,6 @@
 package dev.smartgimbal
 
 import android.app.Application
-import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.smartgimbal.ble.LinkState
@@ -100,7 +99,7 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
     fun setZoomLevel(level: ZoomLevel) {
         if (level == ZoomLevel.WIDE && camera.front) return
         _zoomLevel.value = level
-        Log.d(GimbalSession.LOG_TAG, "ZOOM level=$level")
+        AppLog.d { "ZOOM level=$level" }
     }
 
     /** Called by the camera screen after it applied a zoom ratio. */
@@ -108,7 +107,7 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
         zoomRatio = ratio
         maxZoom = max
         resetTracker = true
-        Log.d(GimbalSession.LOG_TAG, "ZOOM ratio=%.2f".format(Locale.ROOT, ratio))
+        AppLog.d { "ZOOM ratio=%.2f".format(Locale.ROOT, ratio) }
     }
 
     private fun onVoiceCommand(command: VoiceCommand) {
@@ -130,7 +129,7 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
         camera = CameraSetup(front, fov)
         if (front && _zoomLevel.value == ZoomLevel.WIDE) _zoomLevel.value = ZoomLevel.NORMAL // no ultrawide in front
         resetTracker = true
-        Log.d(GimbalSession.LOG_TAG, "CAMERA front=$front fov=%.1f/%.1f".format(Locale.ROOT, fov.longDeg, fov.shortDeg))
+        AppLog.d { "CAMERA front=$front fov=%.1f/%.1f".format(Locale.ROOT, fov.longDeg, fov.shortDeg) }
     }
 
     fun setTrackingEnabled(enabled: Boolean) {
@@ -140,7 +139,7 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
             session.setTrackerCommand(null)
             _trackingOutput.value = null
         }
-        Log.d(GimbalSession.LOG_TAG, "TRACKING ${if (enabled) "an" else "aus"}")
+        AppLog.d { "TRACKING ${if (enabled) "an" else "aus"}" }
     }
 
     /** Runs on the analysis thread for every frame. */
@@ -170,16 +169,15 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
         _trackingOutput.value = output
         if (tracker.learnedTiltLimits != lastLearnedLimits) {
             lastLearnedLimits = tracker.learnedTiltLimits
-            Log.d(GimbalSession.LOG_TAG, "TILT end stops learned up=${lastLearnedLimits.first} down=${lastLearnedLimits.second}")
+            AppLog.d { "TILT end stops learned up=${lastLearnedLimits.first} down=${lastLearnedLimits.second}" }
         }
-        Log.d(
-            GimbalSession.LOG_TAG,
+        AppLog.d {
             "TRACK errPan=%.2f errTilt=%.2f cmdPan=%d cmdTilt=%d tilt=%s".format(
                 Locale.ROOT, output.panErrorDeg, output.tiltErrorDeg,
                 output.command.panRight, output.command.tiltUp,
                 tiltDeg?.let { "%.1f".format(Locale.ROOT, it) } ?: "-",
-            ),
-        )
+            )
+        }
     }
 
     override fun onCleared() {

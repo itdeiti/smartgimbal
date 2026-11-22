@@ -1,10 +1,7 @@
 package dev.smartgimbal.voice
 
 import android.content.Context
-import androidx.core.content.edit
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import dev.smartgimbal.PersistedParams
 
 data class VoiceParams(
     /** Voice control on/off (the mic is only used while the camera screen is visible). */
@@ -14,25 +11,22 @@ data class VoiceParams(
 )
 
 /** [VoiceParams] persisted in SharedPreferences. */
-class VoiceSettings(context: Context) {
-
-    private val prefs = context.getSharedPreferences("voice", Context.MODE_PRIVATE)
-    private val defaults = VoiceParams()
-
-    private val _params = MutableStateFlow(
+class VoiceSettings(context: Context) : PersistedParams<VoiceParams>(
+    prefs = context.getSharedPreferences("voice", Context.MODE_PRIVATE),
+    load = { prefs ->
         VoiceParams(
-            enabled = prefs.getBoolean("enabled", defaults.enabled),
-            threshold = prefs.getFloat("threshold", defaults.threshold),
-        ),
-    )
-    val params: StateFlow<VoiceParams> = _params.asStateFlow()
-
-    fun update(transform: (VoiceParams) -> VoiceParams) {
-        val next = transform(_params.value)
-        _params.value = next
-        prefs.edit {
-            putBoolean("enabled", next.enabled)
-            putFloat("threshold", next.threshold)
-        }
+            enabled = prefs.getBoolean(ENABLED, DEFAULTS.enabled),
+            threshold = prefs.getFloat(THRESHOLD, DEFAULTS.threshold),
+        )
+    },
+    save = { p ->
+        putBoolean(ENABLED, p.enabled)
+        putFloat(THRESHOLD, p.threshold)
+    },
+) {
+    private companion object {
+        val DEFAULTS = VoiceParams()
+        const val ENABLED = "enabled"
+        const val THRESHOLD = "threshold"
     }
 }

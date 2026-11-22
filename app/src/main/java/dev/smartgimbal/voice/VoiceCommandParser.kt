@@ -60,7 +60,13 @@ sealed interface VoiceDecision {
 
     data class Execute(val command: VoiceCommand, override val text: String, override val confidence: Double) : VoiceDecision
 
-    data class Ignore(val reason: String, override val text: String, override val confidence: Double) : VoiceDecision
+    data class Ignore(
+        val reason: String,
+        override val text: String,
+        override val confidence: Double,
+        /** A real command that does not fit the current app state; worth telling the user. */
+        val stateConflict: Boolean = false,
+    ) : VoiceDecision
 }
 
 /**
@@ -88,7 +94,7 @@ class VoiceCommandParser(private val debounceMillis: Long = DEFAULT_DEBOUNCE_MS)
         if (command == lastCommand && nowMillis - lastMillis < debounceMillis) {
             return VoiceDecision.Ignore("Wiederholung", text, confidence)
         }
-        notApplicable(command, context)?.let { return VoiceDecision.Ignore(it, text, confidence) }
+        notApplicable(command, context)?.let { return VoiceDecision.Ignore(it, text, confidence, stateConflict = true) }
 
         lastCommand = command
         lastMillis = nowMillis

@@ -3,11 +3,18 @@ package dev.smartgimbal.tracking
 import android.content.Context
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import java.util.concurrent.ConcurrentHashMap
 
 /** Reads the field of view of the first back or front camera from Camera2 characteristics. */
 object CameraFovReader {
 
-    fun read(context: Context, front: Boolean): Fov? = runCatching {
+    private val cache = ConcurrentHashMap<Boolean, Fov>()
+
+    /** Cached per facing: the lookup is several binder calls and runs on every camera switch. */
+    fun read(context: Context, front: Boolean): Fov? =
+        cache[front] ?: query(context, front)?.also { cache[front] = it }
+
+    private fun query(context: Context, front: Boolean): Fov? = runCatching {
         val manager = context.getSystemService(CameraManager::class.java) ?: return null
         val facing = if (front) CameraCharacteristics.LENS_FACING_FRONT else CameraCharacteristics.LENS_FACING_BACK
         val id = manager.cameraIdList.firstOrNull {

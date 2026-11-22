@@ -1,10 +1,5 @@
 package dev.smartgimbal.ui
 
-import android.Manifest
-import android.bluetooth.BluetoothAdapter
-import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -55,6 +50,9 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.smartgimbal.BLE_PERMISSIONS
+import dev.smartgimbal.BuildConfig
+import dev.smartgimbal.hasAll
 import dev.smartgimbal.ble.FoundDevice
 import dev.smartgimbal.gimbal.GimbalSession
 import dev.smartgimbal.tracking.TrackingSettings
@@ -66,15 +64,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
-
-private val BLE_PERMISSIONS = arrayOf(
-    Manifest.permission.BLUETOOTH_SCAN,
-    Manifest.permission.BLUETOOTH_CONNECT,
-)
-
-private fun hasBlePermissions(context: Context) = BLE_PERMISSIONS.all {
-    context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
-}
 
 /** Protocol tools from phase 1: connect, D-pad, telemetry, raw frames, log. */
 @Composable
@@ -97,21 +86,11 @@ fun DebugScreen(
     val logTelemetry by session.logTelemetry.collectAsStateWithLifecycle()
     val trackingParams by trackingSettings.params.collectAsStateWithLifecycle()
 
-    var hasPermissions by remember { mutableStateOf(hasBlePermissions(context)) }
+    var hasPermissions by remember { mutableStateOf(context.hasAll(BLE_PERMISSIONS)) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { result -> hasPermissions = result.values.all { it } }
-    val enableBtLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { if (session.client.isBluetoothEnabled) session.client.startScan() }
-
-    val onScan = {
-        if (session.client.isBluetoothEnabled) {
-            session.client.startScan()
-        } else {
-            enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
-        }
-    }
+    val onScan = rememberScanAction(session.client)
 
     Scaffold { padding ->
         LazyColumn(
@@ -196,8 +175,11 @@ fun DebugScreen(
 
             item { VoiceCard(voice) }
 
-            item {
-                RawSender(enabled = state == LinkState.READY, onSend = session::sendRaw)
+            // Debug builds only: an unknown command could do anything to the gimbal's firmware.
+            if (BuildConfig.DEBUG) {
+                item {
+                    RawSender(enabled = state == LinkState.READY, onSend = session::sendRaw)
+                }
             }
 
             item {

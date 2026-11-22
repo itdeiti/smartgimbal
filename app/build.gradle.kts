@@ -36,6 +36,8 @@ android {
 
     buildFeatures {
         compose = true
+        // BuildConfig.DEBUG gates logcat output and the raw frame sender.
+        buildConfig = true
     }
 }
 

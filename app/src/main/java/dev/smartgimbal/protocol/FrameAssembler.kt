@@ -38,7 +38,7 @@ class FrameAssembler(private val maxPayload: Int = 256) {
         while (pos < buffer.size) {
             if (!isHeaderAt(pos)) {
                 // A lone A5 at the very end may be the start of the next header.
-                if (pos == buffer.size - 1 && buffer[pos] == HEADER_0) break
+                if (pos == buffer.size - 1 && buffer[pos] == FeiyuProtocol.HEADER_0) break
                 if (garbageStart < 0) garbageStart = pos
                 pos++
                 continue
@@ -71,10 +71,6 @@ class FrameAssembler(private val maxPayload: Int = 256) {
         buffer = ByteArray(0)
     }
 
-    private fun isHeaderAt(i: Int) = i + 1 < buffer.size && buffer[i] == HEADER_0 && buffer[i + 1] == HEADER_1
-
-    private companion object {
-        const val HEADER_0 = 0xA5.toByte()
-        const val HEADER_1 = 0x5A.toByte()
-    }
+    private fun isHeaderAt(i: Int) =
+        i + 1 < buffer.size && buffer[i] == FeiyuProtocol.HEADER_0 && buffer[i + 1] == FeiyuProtocol.HEADER_1
 }

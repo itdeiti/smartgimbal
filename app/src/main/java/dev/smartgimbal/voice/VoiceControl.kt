@@ -1,14 +1,12 @@
 package dev.smartgimbal.voice
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
-import android.content.pm.PackageManager
 import android.os.SystemClock
 import android.os.VibrationEffect
-import android.os.VibratorManager
-import android.util.Log
-import dev.smartgimbal.gimbal.GimbalSession
+import dev.smartgimbal.AppLog
+import dev.smartgimbal.hasMicPermission
+import dev.smartgimbal.vibrate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -62,8 +60,7 @@ class VoiceControl(
         engine.load()
     }
 
-    val hasMicPermission: Boolean
-        get() = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+    val hasMicPermission: Boolean get() = context.hasMicPermission
 
     fun onScreenResumed() {
         screenActive = true
@@ -97,7 +94,7 @@ class VoiceControl(
                 while (isActive) {
                     delay(LEVEL_INTERVAL_MS)
                     _level.value = mic.lastRmsDb
-                    if (++n % LEVEL_LOG_EVERY == 0) Log.d(GimbalSession.LOG_TAG, "VOICE rms=%.1f dB".format(Locale.ROOT, mic.lastRmsDb))
+                    if (++n % LEVEL_LOG_EVERY == 0) AppLog.d { "VOICE rms=%.1f dB".format(Locale.ROOT, mic.lastRmsDb) }
                 }
             }
         } else {
@@ -106,7 +103,7 @@ class VoiceControl(
             _level.value = MicCapture.SILENCE_DB
         }
         _listening.value = shouldListen
-        Log.d(GimbalSession.LOG_TAG, "VOICE ${if (shouldListen) "listening" else "stopped"}")
+        AppLog.d { "VOICE ${if (shouldListen) "listening" else "stopped"}" }
     }
 
     /** Called on the capture thread for every finished utterance. */
@@ -116,25 +113,19 @@ class VoiceControl(
         _history.update { (listOf(decision) + it).take(HISTORY_SIZE) }
         when (decision) {
             is VoiceDecision.Execute -> {
-                Log.d(GimbalSession.LOG_TAG, "VOICE exec ${decision.command} text='${decision.text}' conf=%.2f".format(Locale.ROOT, decision.confidence))
+                AppLog.d { "VOICE exec ${decision.command} text='${decision.text}' conf=%.2f".format(Locale.ROOT, decision.confidence) }
                 vibrate()
                 _feedback.value = "Sprachbefehl: ${decision.command.label}"
                 onCommand(decision.command)
             }
             is VoiceDecision.Ignore -> {
-                Log.d(GimbalSession.LOG_TAG, "VOICE ignore '${decision.text}' conf=%.2f reason=${decision.reason}".format(Locale.ROOT, decision.confidence))
-                // Tell the user when a real command does not fit the current state.
-                val stateReason = decision.reason in STATE_REASONS ||
-                    decision.reason.startsWith("Zoom ist schon") || decision.reason.startsWith("Kamera kann kein")
-                if (stateReason) _feedback.value = "Sprachbefehl ignoriert: ${decision.reason}"
+                AppLog.d { "VOICE ignore '${decision.text}' conf=%.2f reason=${decision.reason}".format(Locale.ROOT, decision.confidence) }
+                if (decision.stateConflict) _feedback.value = "Sprachbefehl ignoriert: ${decision.reason}"
             }
         }
     }
 
-    private fun vibrate() {
-        val vibrator = context.getSystemService(VibratorManager::class.java)?.defaultVibrator ?: return
-        vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK))
-    }
+    private fun vibrate() = context.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK))
 
     fun close() {
         levelJob?.cancel()
@@ -146,10 +137,5 @@ class VoiceControl(
         const val HISTORY_SIZE = 12
         const val LEVEL_INTERVAL_MS = 500L
         const val LEVEL_LOG_EVERY = 10
-        val STATE_REASONS = setOf(
-            "Aufnahme läuft schon", "keine Aufnahme", "kein Gimbal", "Tracking ist schon an", "Tracking ist schon aus",
-            "Foto nur ohne Aufnahme", "Selbstauslöser läuft schon", "Frontkamera hat kein Weitwinkel",
-            "Weitwinkel ist schon an", "Weitwinkel ist schon aus", "Zoom ist schon aus",
-        )
     }
 }

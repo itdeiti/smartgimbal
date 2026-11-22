@@ -5,10 +5,10 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.os.SystemClock
-import android.util.Log
 import android.view.TextureView
 import androidx.camera.view.PreviewView
-import dev.smartgimbal.gimbal.GimbalSession
+import dev.smartgimbal.AppLog
+import dev.smartgimbal.RollingAverage
 import dev.smartgimbal.tracking.FacePipeline
 
 /**
@@ -32,13 +32,16 @@ class PreviewFrameGrabber(private val pipeline: FacePipeline) {
     private var raw: Bitmap? = null
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val matrix = Matrix()
-    private var copyMillisAvg = 0f
+    private val copyMillisAvg = RollingAverage()
     private var count = 0L
 
     /** Grabs one frame and submits it; skips if the analysis is still busy or the view is not ready. */
     fun grab(previewView: PreviewView, mirrored: Boolean) {
         if (pipeline.isBusy) return
         val texture = findTextureView(previewView) ?: return
+        // Without a surface getBitmap() leaves the bitmap untouched: the previous frame would be
+        // analysed again and the tracker would keep steering towards a frozen picture.
+        if (!texture.isAvailable) return
         if (texture.width == 0 || texture.height == 0 || previewView.width == 0 || previewView.height == 0) return
         val start = SystemClock.elapsedRealtimeNanos()
 
@@ -70,12 +73,14 @@ class PreviewFrameGrabber(private val pipeline: FacePipeline) {
         raw = null
     }
 
-    private fun findTextureView(previewView: PreviewView): TextureView? =
-        (0 until previewView.childCount).map(previewView::getChildAt).filterIsInstance<TextureView>().firstOrNull()
+    private fun findTextureView(previewView: PreviewView): TextureView? {
+        for (i in 0 until previewView.childCount) (previewView.getChildAt(i) as? TextureView)?.let { return it }
+        return null
+    }
 
     private fun logCost(millis: Float) {
-        copyMillisAvg = if (count == 0L) millis else copyMillisAvg * 0.9f + millis * 0.1f
-        if (++count % LOG_EVERY_N == 0L) Log.d(GimbalSession.LOG_TAG, "GRAB avg=%.1fms".format(java.util.Locale.ROOT, copyMillisAvg))
+        val avg = copyMillisAvg.add(millis)
+        if (++count % LOG_EVERY_N == 0L) AppLog.d { "GRAB avg=%.1fms".format(java.util.Locale.ROOT, avg) }
     }
 
     private companion object {

@@ -16,6 +16,8 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import androidx.core.content.edit
 import dev.smartgimbal.protocol.FeiyuProtocol
 import dev.smartgimbal.protocol.toHex
 import kotlinx.coroutines.CompletableDeferred
@@ -62,14 +64,22 @@ class GimbalBleClient(
     private val writeMutex = Mutex()
     private val stopScanRunnable = Runnable { stopScan() }
 
-    /** When set, the scan connects to the first gimbal it finds. */
+    /** When set, the scan connects by itself, see [mayAutoConnect]. */
     @Volatile private var autoConnect = false
+    @Volatile private var scanStartMillis = 0L
+
+    /** Address of the gimbal that last reached READY; auto-connect prefers it over look-alikes. */
+    private val prefs = context.getSharedPreferences("ble", Context.MODE_PRIVATE)
 
     val isBluetoothEnabled: Boolean get() = adapter?.isEnabled == true
 
     // region Scan
 
-    /** Scans for [FeiyuProtocol.DEVICE_NAME_PREFIX]; with [autoConnect] it connects to the first hit. */
+    /**
+     * Scans for [FeiyuProtocol.DEVICE_NAME_PREFIX]. With [autoConnect] it connects to the gimbal
+     * used last time, or to any other match once that one has not shown up for
+     * [PREFER_KNOWN_MS] (the name alone is easy to imitate).
+     */
     fun startScan(autoConnect: Boolean = false) {
         if (_state.value != LinkState.IDLE) return
         this.autoConnect = autoConnect
@@ -79,6 +89,7 @@ class GimbalBleClient(
             return
         }
         _devices.value = emptyList()
+        scanStartMillis = SystemClock.elapsedRealtime()
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
         scanner.startScan(null, settings, scanCallback)
         _state.value = LinkState.SCANNING
@@ -102,7 +113,7 @@ class GimbalBleClient(
             _devices.update { list ->
                 (list.filterNot { it.address == found.address } + found).sortedBy { it.name }
             }
-            if (autoConnect && _state.value == LinkState.SCANNING) {
+            if (autoConnect && _state.value == LinkState.SCANNING && mayAutoConnect(found)) {
                 autoConnect = false
                 connect(found)
             }
@@ -112,6 +123,12 @@ class GimbalBleClient(
             _state.value = LinkState.IDLE
             log(LogEntry.error("Scan fehlgeschlagen: errorCode=$errorCode"))
         }
+    }
+
+    private fun mayAutoConnect(found: FoundDevice): Boolean {
+        val known = prefs.getString(KEY_LAST_ADDRESS, null)
+        return known == null || known == found.address ||
+            SystemClock.elapsedRealtime() - scanStartMillis >= PREFER_KNOWN_MS
     }
 
     // endregion
@@ -251,6 +268,7 @@ class GimbalBleClient(
     }
 
     private fun markReady() {
+        gatt?.device?.address?.let { address -> prefs.edit { putString(KEY_LAST_ADDRESS, address) } }
         _state.value = LinkState.READY
         log(LogEntry.info("Bereit"))
     }
@@ -306,6 +324,8 @@ class GimbalBleClient(
 
     private companion object {
         const val SCAN_TIMEOUT_MS = 10_000L
+        const val PREFER_KNOWN_MS = 3_000L
+        const val KEY_LAST_ADDRESS = "lastAddress"
         const val DISCONNECT_TIMEOUT_MS = 2_000L
         const val WRITE_TIMEOUT_MS = 300L
         const val WRITE_ABORTED = -1
