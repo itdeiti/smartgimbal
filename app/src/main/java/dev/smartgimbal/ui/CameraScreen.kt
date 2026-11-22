@@ -69,6 +69,7 @@ import dev.smartgimbal.ble.LinkState
 import dev.smartgimbal.gimbal.CommandSource
 import dev.smartgimbal.GimbalViewModel
 import dev.smartgimbal.camera.PhotoTaker
+import dev.smartgimbal.camera.ZoomLevel
 import dev.smartgimbal.camera.PreviewFrameGrabber
 import dev.smartgimbal.camera.RecordingState
 import dev.smartgimbal.camera.VideoRecorder
@@ -137,7 +138,7 @@ private fun CameraContent(
     val rec by recorder.state.collectAsStateWithLifecycle()
     val photo = remember { PhotoTaker(context) }
     val photoState by photo.state.collectAsStateWithLifecycle()
-    val wideAngle by vm.wideAngle.collectAsStateWithLifecycle()
+    val zoomLevel by vm.zoomLevel.collectAsStateWithLifecycle()
     var appliedZoom by remember { mutableFloatStateOf(1f) }
     val scope = rememberCoroutineScope()
     val countingDown = photoState.countdown != null
@@ -189,10 +190,10 @@ private fun CameraContent(
         }
     }
     // Wide angle = the logical camera's minimum zoom ratio (0.67 on the Pixel 7 = ultrawide lens).
-    LaunchedEffect(wideAngle, useFront) {
-        val ratio = applyZoom(controller, wide = wideAngle && !useFront)
+    LaunchedEffect(zoomLevel, useFront) {
+        val (ratio, max) = applyZoom(controller, zoomLevel)
         appliedZoom = ratio
-        vm.setZoomRatio(ratio.toDouble())
+        vm.setZoomRatio(ratio.toDouble(), max)
     }
     // Feeds face detection with preview copies; skips frames while the detector is busy.
     LaunchedEffect(previewView, useFront) {
@@ -263,10 +264,9 @@ private fun CameraContent(
             if (rec.recording) RecordingBadge(rec)
             Spacer(Modifier.weight(1f))
             OverlayButton(
-                text = if (wideAngle) "0,7×" else "1×",
-                active = wideAngle,
-                enabled = !useFront,
-                onClick = { vm.setWideAngle(!wideAngle) },
+                text = zoomLevel.label,
+                active = zoomLevel != ZoomLevel.NORMAL,
+                onClick = { vm.setZoomLevel(zoomLevel.next(frontCamera = useFront)) },
             )
             Spacer(Modifier.width(8.dp))
             OverlayButton("Debug", enabled = !busy, onClick = openDebug)
@@ -477,18 +477,21 @@ private fun BoxScope.CountdownOverlay(seconds: Int) {
     )
 }
 
-/** Sets the zoom ratio once the camera is bound; returns the ratio actually used. */
-private suspend fun applyZoom(controller: LifecycleCameraController, wide: Boolean): Float {
+/**
+ * Sets the zoom once the camera is bound, clamped to what the camera supports.
+ * Returns the ratio actually used and the camera's maximum.
+ */
+private suspend fun applyZoom(controller: LifecycleCameraController, level: ZoomLevel): Pair<Float, Float> {
     repeat(30) {
         val zoom = controller.cameraInfo?.zoomState?.value
         if (zoom != null) {
-            val ratio = if (wide) zoom.minZoomRatio else 1f
+            val ratio = (level.ratio ?: zoom.minZoomRatio).coerceIn(zoom.minZoomRatio, zoom.maxZoomRatio)
             controller.setZoomRatio(ratio)
-            return ratio
+            return ratio to zoom.maxZoomRatio
         }
         delay(100)
     }
-    return 1f
+    return 1f to 1f
 }
 
 /** Red dot to start; while recording a smaller red square to stop. */

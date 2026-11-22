@@ -15,6 +15,12 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+
+        // Only 64-bit ARM (Pixel 7 and every current phone). Vosk and ML Kit otherwise ship native
+        // libraries for seven ABIs, which made the APK 166 MB.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {

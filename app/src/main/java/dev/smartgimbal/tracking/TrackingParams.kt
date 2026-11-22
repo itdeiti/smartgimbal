@@ -35,7 +35,14 @@ data class TrackingParams(
      */
     val tiltUpLimitDeg: Float = 30f,
     val tiltDownLimitDeg: Float = -25f,
-)
+) {
+    /**
+     * Parameters for a zoom ratio: when zoomed in, the deadzone shrinks with the field of view,
+     * otherwise 3 deg would be a third of the frame at 4x. Wide angle keeps the base deadzone.
+     */
+    fun forZoom(ratio: Double): TrackingParams =
+        if (ratio <= 1.0) this else copy(deadzoneDeg = (deadzoneDeg / ratio).toFloat())
+}
 
 /** Measured gimbal response: about 0.22 deg/s per joystick unit in the linear range. */
 const val DEG_PER_SEC_PER_UNIT = 0.22

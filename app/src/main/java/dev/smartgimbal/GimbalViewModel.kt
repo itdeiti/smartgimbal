@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.smartgimbal.ble.LinkState
+import dev.smartgimbal.camera.ZoomLevel
 import dev.smartgimbal.gimbal.GimbalSession
 import dev.smartgimbal.tracking.CameraFovReader
 import dev.smartgimbal.tracking.FaceFrame
@@ -53,12 +54,13 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
     @Volatile private var recordingActive = false
     @Volatile private var photoCountdownActive = false
 
-    /** Wide angle (ultrawide lens via zoom ratio < 1) requested; the camera screen applies it. */
-    private val _wideAngle = MutableStateFlow(false)
-    val wideAngle: StateFlow<Boolean> = _wideAngle.asStateFlow()
+    /** Requested zoom step (0.7x ultrawide, 1x, 2x, 4x); the camera screen applies it. */
+    private val _zoomLevel = MutableStateFlow(ZoomLevel.NORMAL)
+    val zoomLevel: StateFlow<ZoomLevel> = _zoomLevel.asStateFlow()
 
     /** Zoom ratio actually applied by the camera screen; scales the tracker's field of view. */
     @Volatile private var zoomRatio = 1.0
+    @Volatile private var maxZoom = 8f
 
     /** Camera commands (record, stop, photo) go to the camera screen, which owns the camera. */
     private val _cameraCommands = MutableSharedFlow<VoiceCommand>(extraBufferCapacity = 4)
@@ -73,8 +75,9 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
                 gimbalReady = session.client.state.value == LinkState.READY,
                 trackingOn = _trackingEnabled.value,
                 photoCountdown = photoCountdownActive,
-                wideAngle = _wideAngle.value,
+                zoom = _zoomLevel.value,
                 frontCamera = camera.front,
+                maxZoom = maxZoom,
             )
         },
         onCommand = ::onVoiceCommand,
@@ -94,15 +97,16 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
         photoCountdownActive = active
     }
 
-    fun setWideAngle(enabled: Boolean) {
-        if (enabled && camera.front) return
-        _wideAngle.value = enabled
-        Log.d(GimbalSession.LOG_TAG, "ZOOM wide=$enabled")
+    fun setZoomLevel(level: ZoomLevel) {
+        if (level == ZoomLevel.WIDE && camera.front) return
+        _zoomLevel.value = level
+        Log.d(GimbalSession.LOG_TAG, "ZOOM level=$level")
     }
 
     /** Called by the camera screen after it applied a zoom ratio. */
-    fun setZoomRatio(ratio: Double) {
+    fun setZoomRatio(ratio: Double, max: Float) {
         zoomRatio = ratio
+        maxZoom = max
         resetTracker = true
         Log.d(GimbalSession.LOG_TAG, "ZOOM ratio=%.2f".format(Locale.ROOT, ratio))
     }
@@ -113,8 +117,10 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
             VoiceCommand.TRACKING_ON -> setTrackingEnabled(true)
             VoiceCommand.TRACKING_OFF -> setTrackingEnabled(false)
             VoiceCommand.HOME -> session.home()
-            VoiceCommand.WIDE_ON -> setWideAngle(true)
-            VoiceCommand.WIDE_OFF -> setWideAngle(false)
+            VoiceCommand.WIDE_ON -> setZoomLevel(ZoomLevel.WIDE)
+            VoiceCommand.WIDE_OFF, VoiceCommand.ZOOM_OFF -> setZoomLevel(ZoomLevel.NORMAL)
+            VoiceCommand.ZOOM_2 -> setZoomLevel(ZoomLevel.X2)
+            VoiceCommand.ZOOM_4 -> setZoomLevel(ZoomLevel.X4)
         }
     }
 
@@ -122,7 +128,7 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
     fun setCamera(front: Boolean) {
         val fov = CameraFovReader.read(getApplication(), front) ?: Fov.DEFAULT
         camera = CameraSetup(front, fov)
-        if (front) _wideAngle.value = false // the front camera has no ultrawide lens
+        if (front && _zoomLevel.value == ZoomLevel.WIDE) _zoomLevel.value = ZoomLevel.NORMAL // no ultrawide in front
         resetTracker = true
         Log.d(GimbalSession.LOG_TAG, "CAMERA front=$front fov=%.1f/%.1f".format(Locale.ROOT, fov.longDeg, fov.shortDeg))
     }
@@ -158,7 +164,7 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
             frontCamera = setup.front,
             tiltDeg = tiltDeg,
             nowMillis = frame.timestampMillis,
-            params = trackingSettings.params.value,
+            params = trackingSettings.params.value.forZoom(zoomRatio),
         )
         session.setTrackerCommand(output.command)
         _trackingOutput.value = output

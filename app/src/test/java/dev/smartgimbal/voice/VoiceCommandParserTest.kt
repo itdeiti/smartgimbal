@@ -1,5 +1,6 @@
 package dev.smartgimbal.voice
 
+import dev.smartgimbal.camera.ZoomLevel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -80,7 +81,8 @@ class VoiceCommandParserTest {
             listOf(
                 "aufnahme starten", "stopp", "aufnahme stopp", "aufnahme stoppen", "stoppen", "abbrechen",
                 "tracking an", "tracking aus",
-                "kamera zurück", "käse", "weitwinkel an", "weitwinkel aus",
+                "kamera zurück", "käse", "weitwinkel an", "weitwinkel aus", "zoom zwei", "zoom vier",
+                "zoom aus", "zoom normal",
             ),
             VoiceCommand.GRAMMAR,
         )
@@ -105,8 +107,29 @@ class VoiceCommandParserTest {
         val parser = VoiceCommandParser()
         assertEquals("Frontkamera hat kein Weitwinkel", parser.decide(result("weitwinkel an"), idle.copy(frontCamera = true), 0.7, 1_000).reason())
         assertEquals("Weitwinkel ist schon aus", parser.decide(result("weitwinkel aus"), idle, 0.7, 1_000).reason())
-        assertEquals("Weitwinkel ist schon an", parser.decide(result("weitwinkel an"), idle.copy(wideAngle = true), 0.7, 1_000).reason())
+        assertEquals("Weitwinkel ist schon an", parser.decide(result("weitwinkel an"), idle.copy(zoom = ZoomLevel.WIDE), 0.7, 1_000).reason())
+        assertEquals("Weitwinkel ist schon aus", parser.decide(result("weitwinkel aus"), idle.copy(zoom = ZoomLevel.X2), 0.7, 1_000).reason())
         assertTrue(parser.decide(result("weitwinkel an"), idle, 0.7, 1_000) is VoiceDecision.Execute)
+    }
+
+    @Test
+    fun `zoom steps check state and camera limits`() {
+        val parser = VoiceCommandParser()
+        assertEquals("Zoom ist schon 2×", parser.decide(result("zoom zwei"), idle.copy(zoom = ZoomLevel.X2), 0.7, 1_000).reason())
+        assertEquals("Kamera kann kein 4×", parser.decide(result("zoom vier"), idle.copy(maxZoom = 3f), 0.7, 1_000).reason())
+        assertEquals("Zoom ist schon aus", parser.decide(result("zoom aus"), idle, 0.7, 1_000).reason())
+        val toFour = parser.decide(result("zoom vier"), idle, 0.7, 1_000)
+        assertTrue(toFour is VoiceDecision.Execute && toFour.command == VoiceCommand.ZOOM_4)
+        val back = parser.decide(result("zoom normal"), idle.copy(zoom = ZoomLevel.X4), 0.7, 1_100)
+        assertTrue(back is VoiceDecision.Execute && back.command == VoiceCommand.ZOOM_OFF)
+    }
+
+    @Test
+    fun `zoom button cycles and skips ultrawide on the front camera`() {
+        assertEquals(ZoomLevel.NORMAL, ZoomLevel.WIDE.next(frontCamera = false))
+        assertEquals(ZoomLevel.WIDE, ZoomLevel.X4.next(frontCamera = false))
+        assertEquals(ZoomLevel.NORMAL, ZoomLevel.X4.next(frontCamera = true))
+        assertEquals(ZoomLevel.X2, ZoomLevel.NORMAL.next(frontCamera = true))
     }
 
     @Test

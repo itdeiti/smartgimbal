@@ -124,7 +124,9 @@ class VoiceControl(
             is VoiceDecision.Ignore -> {
                 Log.d(GimbalSession.LOG_TAG, "VOICE ignore '${decision.text}' conf=%.2f reason=${decision.reason}".format(Locale.ROOT, decision.confidence))
                 // Tell the user when a real command does not fit the current state.
-                if (decision.reason in STATE_REASONS) _feedback.value = "Sprachbefehl ignoriert: ${decision.reason}"
+                val stateReason = decision.reason in STATE_REASONS ||
+                    decision.reason.startsWith("Zoom ist schon") || decision.reason.startsWith("Kamera kann kein")
+                if (stateReason) _feedback.value = "Sprachbefehl ignoriert: ${decision.reason}"
             }
         }
     }
@@ -147,7 +149,7 @@ class VoiceControl(
         val STATE_REASONS = setOf(
             "Aufnahme läuft schon", "keine Aufnahme", "kein Gimbal", "Tracking ist schon an", "Tracking ist schon aus",
             "Foto nur ohne Aufnahme", "Selbstauslöser läuft schon", "Frontkamera hat kein Weitwinkel",
-            "Weitwinkel ist schon an", "Weitwinkel ist schon aus",
+            "Weitwinkel ist schon an", "Weitwinkel ist schon aus", "Zoom ist schon aus",
         )
     }
 }

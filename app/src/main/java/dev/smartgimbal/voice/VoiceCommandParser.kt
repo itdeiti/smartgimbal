@@ -1,5 +1,7 @@
 package dev.smartgimbal.voice
 
+import dev.smartgimbal.camera.ZoomLevel
+
 /** Spoken commands; the recognised text must match one of the [phrases] exactly. */
 enum class VoiceCommand(val label: String, vararg val phrases: String) {
     START_RECORDING("Aufnahme starten", "aufnahme starten"),
@@ -18,6 +20,9 @@ enum class VoiceCommand(val label: String, vararg val phrases: String) {
     PHOTO("Käse – Foto in 3 s", "käse"),
     WIDE_ON("Weitwinkel an", "weitwinkel an"),
     WIDE_OFF("Weitwinkel aus", "weitwinkel aus"),
+    ZOOM_2("Zoom 2×", "zoom zwei"),
+    ZOOM_4("Zoom 4×", "zoom vier"),
+    ZOOM_OFF("Zoom aus", "zoom aus", "zoom normal"),
     ;
 
     companion object {
@@ -31,8 +36,10 @@ data class VoiceContext(
     val gimbalReady: Boolean,
     val trackingOn: Boolean,
     val photoCountdown: Boolean = false,
-    val wideAngle: Boolean = false,
+    val zoom: ZoomLevel = ZoomLevel.NORMAL,
     val frontCamera: Boolean = false,
+    /** Highest zoom ratio the active camera supports. */
+    val maxZoom: Float = 8f,
 )
 
 sealed interface VoiceDecision {
@@ -98,10 +105,19 @@ class VoiceCommandParser(private val debounceMillis: Long = DEFAULT_DEBOUNCE_MS)
         }
         VoiceCommand.WIDE_ON -> when {
             c.frontCamera -> "Frontkamera hat kein Weitwinkel"
-            c.wideAngle -> "Weitwinkel ist schon an"
+            c.zoom == ZoomLevel.WIDE -> "Weitwinkel ist schon an"
             else -> null
         }
-        VoiceCommand.WIDE_OFF -> if (!c.wideAngle) "Weitwinkel ist schon aus" else null
+        VoiceCommand.WIDE_OFF -> if (c.zoom != ZoomLevel.WIDE) "Weitwinkel ist schon aus" else null
+        VoiceCommand.ZOOM_2 -> zoomCheck(ZoomLevel.X2, c)
+        VoiceCommand.ZOOM_4 -> zoomCheck(ZoomLevel.X4, c)
+        VoiceCommand.ZOOM_OFF -> if (c.zoom == ZoomLevel.NORMAL) "Zoom ist schon aus" else null
+    }
+
+    private fun zoomCheck(level: ZoomLevel, c: VoiceContext): String? = when {
+        c.zoom == level -> "Zoom ist schon ${level.label}"
+        (level.ratio ?: 1f) > c.maxZoom -> "Kamera kann kein ${level.label}"
+        else -> null
     }
 
     private companion object {
