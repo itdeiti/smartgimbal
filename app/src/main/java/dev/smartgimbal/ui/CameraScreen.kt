@@ -329,8 +329,8 @@ private fun CameraContent(
 }
 
 /**
- * Gimbal status that doubles as connect button: tapping it while disconnected scans and connects
- * to the first gimbal found.
+ * Gimbal status that doubles as connect button: tapping it while disconnected scans and connects,
+ * tapping it while connecting cancels.
  */
 @Composable
 private fun GimbalChip(session: GimbalSession, onOpenDebug: () -> Unit) {
@@ -342,7 +342,7 @@ private fun GimbalChip(session: GimbalSession, onOpenDebug: () -> Unit) {
     val label = when (state) {
         LinkState.IDLE -> "Gimbal verbinden"
         LinkState.SCANNING -> "Suche Gimbal …"
-        LinkState.CONNECTING, LinkState.DISCOVERING -> "Verbinde …"
+        LinkState.CONNECTING, LinkState.DISCOVERING -> "Verbinde … ✕"
         LinkState.READY -> buildString {
             append("● ").append(name ?: "Gimbal")
             when (source) {
@@ -356,7 +356,8 @@ private fun GimbalChip(session: GimbalSession, onOpenDebug: () -> Unit) {
         LinkState.IDLE -> scanAndConnect
         LinkState.SCANNING -> session.client::stopScan
         LinkState.READY -> onOpenDebug
-        else -> { {} }
+        // Tapping while connecting cancels the attempt.
+        LinkState.CONNECTING, LinkState.DISCOVERING -> session.client::disconnect
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         OverlayButton(label, onClick = onClick)

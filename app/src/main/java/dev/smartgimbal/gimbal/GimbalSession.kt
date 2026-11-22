@@ -222,10 +222,11 @@ class GimbalSession(context: Context, private val scope: CoroutineScope) {
         }
     }
 
+    /** Stops the gimbal and closes the link; a last stop frame goes out even mid-move. */
     fun close() {
         arbiter.setManual(null)
         arbiter.setTracker(null, 0)
-        client.close()
+        client.close(lastFrame = FeiyuProtocol.move(0, 0))
     }
 
     companion object {
