@@ -69,6 +69,19 @@ Das ist deutlich mehr Code, funktioniert aber unabhängig von der Mikrofon-Prior
 - **Tonspur:** Die Stimme ist gut hörbar, das gemeinsame Mikrofon funktioniert also auch im Alltag.
 - **„Aufnahme stoppen":** Weil das nicht in der Grammatik stand, erkannte Vosk das nächstähnliche Wort, „starten". Seitdem gibt es für Stopp zusätzlich „aufnahme stopp" und „aufnahme stoppen", alle Wörter stehen im Vokabular.
 
+## Erweiterung: Foto per Sprache und Weitwinkel (2026-11-22)
+
+| Befehl | Wirkung |
+| --- | --- |
+| „Käse" | Selbstauslöser 3 s (Countdown im Bild, Vibration pro Sekunde), dann Foto nach `Pictures/SmartGimbal` |
+| „Stopp" / „Stoppen" / „Abbrechen" | bricht den Selbstauslöser ab, sonst beendet es die Aufnahme |
+| „Weitwinkel an" / „Weitwinkel aus" | Hauptkamera 0,67× (Ultraweitwinkel) bzw. 1× |
+
+- **„Cheese":** Das Wort fehlt im deutschen Modell. Ein gesprochenes „Cheese" landet aber auf „käse" und löst aus, das ist bestätigt.
+- **Foto ohne dritten Stream:** Während des Countdowns schaltet der Controller von Video auf Foto um und danach zurück. Fotos gibt es nur ohne laufende Aufnahme. Ergebnis: 4032×2268 (16:9-Ausschnitt), und danach wird weiter in 4K aufgenommen (geprüft).
+- **Weitwinkel:** über `setZoomRatio(minZoomRatio)` (0,67 auf dem Pixel 7). Das Tracking skaliert den Bildwinkel mit (`Fov.zoomed`). Ein Zoomwechsel während einer 4K-Aufnahme ändert die Auflösung nicht. Die Frontkamera hat kein Weitwinkel.
+- **Test:** Abbrechen per „Stopp" funktioniert. Ein einzelnes „Stoppen" kannte die Grammatik nur als Teil von „Aufnahme stoppen", deshalb sind jetzt auch „stoppen" und „abbrechen" eigene Formulierungen.
+
 ## Risiken
 
 - **Erkennung auf Distanz:** Das kleine Modell ist auf Handy-Nähe trainiert. Gegenmittel sind kurze, gut unterscheidbare Befehle, die Grammatik und notfalls ein niedrigerer Schwellwert mit längerer Sperre.

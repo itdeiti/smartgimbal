@@ -10,6 +10,7 @@ import android.util.Log
 import android.util.Range
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.DynamicRange
+import androidx.camera.core.ImageCapture
 import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.Recorder
 import androidx.camera.video.Quality
@@ -22,6 +23,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,7 +43,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -51,7 +55,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -62,6 +68,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.smartgimbal.ble.LinkState
 import dev.smartgimbal.gimbal.CommandSource
 import dev.smartgimbal.GimbalViewModel
+import dev.smartgimbal.camera.PhotoTaker
 import dev.smartgimbal.camera.PreviewFrameGrabber
 import dev.smartgimbal.camera.RecordingState
 import dev.smartgimbal.camera.VideoRecorder
@@ -128,6 +135,14 @@ private fun CameraContent(
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     val recorder = remember { VideoRecorder(context) }
     val rec by recorder.state.collectAsStateWithLifecycle()
+    val photo = remember { PhotoTaker(context) }
+    val photoState by photo.state.collectAsStateWithLifecycle()
+    val wideAngle by vm.wideAngle.collectAsStateWithLifecycle()
+    var appliedZoom by remember { mutableFloatStateOf(1f) }
+    val scope = rememberCoroutineScope()
+    val countingDown = photoState.countdown != null
+    // Camera busy: switching camera or screen would cut a recording or the self-timer.
+    val busy = rec.recording || countingDown
 
     // Only preview + video: that pair runs in 4K/30 on the Pixel 7. A third (analysis) stream would
     // force 1080p, so face detection reads copies of the preview instead (PreviewFrameGrabber).
@@ -140,13 +155,16 @@ private fun CameraContent(
                 FallbackStrategy.lowerQualityOrHigherThan(Quality.FHD),
             )
             videoCaptureTargetFrameRate = Range(30, 30)
+            imageCaptureMode = ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
         }
     }
+    val startPhoto = { if (!busy) photo.start(scope, controller) { appliedZoom } }
 
     DisposableEffect(lifecycleOwner) {
         controller.bindToLifecycle(lifecycleOwner)
         // Leaving the screen (e.g. to debug) releases the camera.
         onDispose {
+            photo.cancel()
             recorder.stop()
             controller.unbind()
             grabber.release()
@@ -158,14 +176,23 @@ private fun CameraContent(
         onPauseOrDispose { vm.voice.onScreenPaused() }
     }
     LaunchedEffect(rec.recording) { vm.setRecording(rec.recording) }
+    LaunchedEffect(countingDown) { vm.setPhotoCountdown(countingDown) }
     LaunchedEffect(controller) {
-        vm.recordingCommands.collect { command ->
+        vm.cameraCommands.collect { command ->
             when (command) {
-                VoiceCommand.START_RECORDING -> recorder.start(controller)
-                VoiceCommand.STOP -> recorder.stop()
+                VoiceCommand.START_RECORDING -> if (!photo.isCountingDown) recorder.start(controller)
+                // Stop cancels the self-timer if one is running, otherwise it ends the recording.
+                VoiceCommand.STOP -> if (photo.isCountingDown) photo.cancel() else recorder.stop()
+                VoiceCommand.PHOTO -> startPhoto()
                 else -> Unit
             }
         }
+    }
+    // Wide angle = the logical camera's minimum zoom ratio (0.67 on the Pixel 7 = ultrawide lens).
+    LaunchedEffect(wideAngle, useFront) {
+        val ratio = applyZoom(controller, wide = wideAngle && !useFront)
+        appliedZoom = ratio
+        vm.setZoomRatio(ratio.toDouble())
     }
     // Feeds face detection with preview copies; skips frames while the detector is busy.
     LaunchedEffect(previewView, useFront) {
@@ -203,6 +230,7 @@ private fun CameraContent(
         )
 
         FaceOverlay(frame = frame, showCenter = trackingEnabled, modifier = Modifier.fillMaxSize())
+        photoState.countdown?.let { CountdownOverlay(it) }
       }
 
         Text(
@@ -224,8 +252,8 @@ private fun CameraContent(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         )
 
-        // Leaving the screen would release the camera and cut the recording.
-        val openDebug = { if (!rec.recording) onOpenDebug() }
+        // Leaving the screen would release the camera and cut the recording or the self-timer.
+        val openDebug = { if (!busy) onOpenDebug() }
         Row(
             Modifier.align(Alignment.TopCenter).fillMaxWidth().systemBarsPadding().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -234,7 +262,14 @@ private fun CameraContent(
             Spacer(Modifier.weight(1f))
             if (rec.recording) RecordingBadge(rec)
             Spacer(Modifier.weight(1f))
-            OverlayButton("Debug", enabled = !rec.recording, onClick = openDebug)
+            OverlayButton(
+                text = if (wideAngle) "0,7×" else "1×",
+                active = wideAngle,
+                enabled = !useFront,
+                onClick = { vm.setWideAngle(!wideAngle) },
+            )
+            Spacer(Modifier.width(8.dp))
+            OverlayButton("Debug", enabled = !busy, onClick = openDebug)
         }
 
         voiceFeedback?.let { note ->
@@ -253,6 +288,25 @@ private fun CameraContent(
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF1565C0).copy(alpha = 0.85f))
                     .padding(horizontal = 14.dp, vertical = 8.dp),
+            )
+        }
+
+        photoState.message?.let { message ->
+            LaunchedEffect(message) {
+                delay(3_000)
+                photo.clearMessage()
+            }
+            Text(
+                message,
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .systemBarsPadding()
+                    .padding(bottom = 168.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
             )
         }
 
@@ -281,14 +335,19 @@ private fun CameraContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             OverlayButton(
-                if (useFront) "Hauptkamera" else "Frontkamera",
-                enabled = !rec.recording,
+                if (useFront) "Haupt" else "Front",
+                enabled = !busy,
                 onClick = onToggleCamera,
             )
-            RecordButton(recording = rec.recording, onClick = { recorder.toggle(controller) })
+            OverlayButton(
+                text = if (countingDown) "Abbrechen" else "Foto",
+                enabled = !rec.recording,
+                onClick = { if (countingDown) photo.cancel() else startPhoto() },
+            )
+            RecordButton(recording = rec.recording, enabled = !countingDown, onClick = { recorder.toggle(controller) })
             VoiceButton(vm)
             OverlayButton(
-                text = if (trackingEnabled) "Tracking an" else "Tracking aus",
+                text = "Tracking",
                 active = trackingEnabled,
                 // Switching on needs a gimbal; switching off must always work.
                 enabled = trackingEnabled || gimbalState == LinkState.READY,
@@ -388,8 +447,7 @@ private fun VoiceButton(vm: GimbalViewModel) {
         !vm.voice.hasMicPermission -> "Sprache: kein Mikro" to false
         engine == VoiceEngine.State.LOADING || engine == VoiceEngine.State.IDLE -> "Sprache lädt …" to false
         engine == VoiceEngine.State.FAILED -> "Sprache: Fehler" to false
-        params.enabled -> "Sprache an" to true
-        else -> "Sprache aus" to true
+        else -> "Sprache" to true
     }
     OverlayButton(
         text = text,
@@ -399,15 +457,50 @@ private fun VoiceButton(vm: GimbalViewModel) {
     )
 }
 
+/** Big seconds of the photo self-timer; a white flash at 0. */
+@Composable
+private fun BoxScope.CountdownOverlay(seconds: Int) {
+    if (seconds == 0) {
+        Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.6f)))
+        return
+    }
+    Text(
+        seconds.toString(),
+        color = Color.White,
+        fontSize = 140.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier
+            .align(Alignment.Center)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.35f))
+            .padding(horizontal = 48.dp),
+    )
+}
+
+/** Sets the zoom ratio once the camera is bound; returns the ratio actually used. */
+private suspend fun applyZoom(controller: LifecycleCameraController, wide: Boolean): Float {
+    repeat(30) {
+        val zoom = controller.cameraInfo?.zoomState?.value
+        if (zoom != null) {
+            val ratio = if (wide) zoom.minZoomRatio else 1f
+            controller.setZoomRatio(ratio)
+            return ratio
+        }
+        delay(100)
+    }
+    return 1f
+}
+
 /** Red dot to start; while recording a smaller red square to stop. */
 @Composable
-private fun RecordButton(recording: Boolean, onClick: () -> Unit) {
+private fun RecordButton(recording: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     Box(
         Modifier
             .size(76.dp)
+            .alpha(if (enabled) 1f else 0.4f)
             .border(4.dp, Color.White, CircleShape)
             .clip(CircleShape)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Box(

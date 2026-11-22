@@ -51,10 +51,18 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
     private var lastLearnedLimits: Pair<Double?, Double?> = null to null
 
     @Volatile private var recordingActive = false
+    @Volatile private var photoCountdownActive = false
 
-    /** Recording commands go to the camera screen, which owns the recorder. */
-    private val _recordingCommands = MutableSharedFlow<VoiceCommand>(extraBufferCapacity = 4)
-    val recordingCommands: SharedFlow<VoiceCommand> = _recordingCommands.asSharedFlow()
+    /** Wide angle (ultrawide lens via zoom ratio < 1) requested; the camera screen applies it. */
+    private val _wideAngle = MutableStateFlow(false)
+    val wideAngle: StateFlow<Boolean> = _wideAngle.asStateFlow()
+
+    /** Zoom ratio actually applied by the camera screen; scales the tracker's field of view. */
+    @Volatile private var zoomRatio = 1.0
+
+    /** Camera commands (record, stop, photo) go to the camera screen, which owns the camera. */
+    private val _cameraCommands = MutableSharedFlow<VoiceCommand>(extraBufferCapacity = 4)
+    val cameraCommands: SharedFlow<VoiceCommand> = _cameraCommands.asSharedFlow()
 
     val voice = VoiceControl(
         context = app,
@@ -64,6 +72,9 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
                 recording = recordingActive,
                 gimbalReady = session.client.state.value == LinkState.READY,
                 trackingOn = _trackingEnabled.value,
+                photoCountdown = photoCountdownActive,
+                wideAngle = _wideAngle.value,
+                frontCamera = camera.front,
             )
         },
         onCommand = ::onVoiceCommand,
@@ -78,12 +89,32 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
         recordingActive = active
     }
 
+    /** The camera screen reports whether the photo self-timer is counting down. */
+    fun setPhotoCountdown(active: Boolean) {
+        photoCountdownActive = active
+    }
+
+    fun setWideAngle(enabled: Boolean) {
+        if (enabled && camera.front) return
+        _wideAngle.value = enabled
+        Log.d(GimbalSession.LOG_TAG, "ZOOM wide=$enabled")
+    }
+
+    /** Called by the camera screen after it applied a zoom ratio. */
+    fun setZoomRatio(ratio: Double) {
+        zoomRatio = ratio
+        resetTracker = true
+        Log.d(GimbalSession.LOG_TAG, "ZOOM ratio=%.2f".format(Locale.ROOT, ratio))
+    }
+
     private fun onVoiceCommand(command: VoiceCommand) {
         when (command) {
-            VoiceCommand.START_RECORDING, VoiceCommand.STOP -> _recordingCommands.tryEmit(command)
+            VoiceCommand.START_RECORDING, VoiceCommand.STOP, VoiceCommand.PHOTO -> _cameraCommands.tryEmit(command)
             VoiceCommand.TRACKING_ON -> setTrackingEnabled(true)
             VoiceCommand.TRACKING_OFF -> setTrackingEnabled(false)
             VoiceCommand.HOME -> session.home()
+            VoiceCommand.WIDE_ON -> setWideAngle(true)
+            VoiceCommand.WIDE_OFF -> setWideAngle(false)
         }
     }
 
@@ -91,6 +122,7 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
     fun setCamera(front: Boolean) {
         val fov = CameraFovReader.read(getApplication(), front) ?: Fov.DEFAULT
         camera = CameraSetup(front, fov)
+        if (front) _wideAngle.value = false // the front camera has no ultrawide lens
         resetTracker = true
         Log.d(GimbalSession.LOG_TAG, "CAMERA front=$front fov=%.1f/%.1f".format(Locale.ROOT, fov.longDeg, fov.shortDeg))
     }
@@ -122,7 +154,7 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
             target = box,
             imageWidth = frame.imageWidth,
             imageHeight = frame.imageHeight,
-            fov = setup.fov,
+            fov = setup.fov.zoomed(zoomRatio),
             frontCamera = setup.front,
             tiltDeg = tiltDeg,
             nowMillis = frame.timestampMillis,

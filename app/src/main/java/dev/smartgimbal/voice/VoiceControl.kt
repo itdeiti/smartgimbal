@@ -144,6 +144,10 @@ class VoiceControl(
         const val HISTORY_SIZE = 12
         const val LEVEL_INTERVAL_MS = 500L
         const val LEVEL_LOG_EVERY = 10
-        val STATE_REASONS = setOf("Aufnahme läuft schon", "keine Aufnahme", "kein Gimbal", "Tracking ist schon an", "Tracking ist schon aus")
+        val STATE_REASONS = setOf(
+            "Aufnahme läuft schon", "keine Aufnahme", "kein Gimbal", "Tracking ist schon an", "Tracking ist schon aus",
+            "Foto nur ohne Aufnahme", "Selbstauslöser läuft schon", "Frontkamera hat kein Weitwinkel",
+            "Weitwinkel ist schon an", "Weitwinkel ist schon aus",
+        )
     }
 }

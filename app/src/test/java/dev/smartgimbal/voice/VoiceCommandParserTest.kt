@@ -77,14 +77,41 @@ class VoiceCommandParserTest {
     @Test
     fun `grammar contains every phrase`() {
         assertEquals(
-            listOf("aufnahme starten", "stopp", "aufnahme stopp", "aufnahme stoppen", "tracking an", "tracking aus", "kamera zurück"),
+            listOf(
+                "aufnahme starten", "stopp", "aufnahme stopp", "aufnahme stoppen", "stoppen", "abbrechen",
+                "tracking an", "tracking aus",
+                "kamera zurück", "käse", "weitwinkel an", "weitwinkel aus",
+            ),
             VoiceCommand.GRAMMAR,
         )
     }
 
     @Test
+    fun `photo only without recording and not twice`() {
+        val parser = VoiceCommandParser()
+        assertEquals("Foto nur ohne Aufnahme", parser.decide(result("käse"), recording, 0.7, 1_000).reason())
+        assertEquals("Selbstauslöser läuft schon", parser.decide(result("käse"), idle.copy(photoCountdown = true), 0.7, 1_000).reason())
+        assertTrue(parser.decide(result("käse"), idle, 0.7, 1_000) is VoiceDecision.Execute)
+    }
+
+    @Test
+    fun `stop cancels the self timer`() {
+        val d = VoiceCommandParser().decide(result("stopp"), idle.copy(photoCountdown = true), 0.7, 1_000)
+        assertTrue(d is VoiceDecision.Execute && d.command == VoiceCommand.STOP)
+    }
+
+    @Test
+    fun `wide angle depends on camera and state`() {
+        val parser = VoiceCommandParser()
+        assertEquals("Frontkamera hat kein Weitwinkel", parser.decide(result("weitwinkel an"), idle.copy(frontCamera = true), 0.7, 1_000).reason())
+        assertEquals("Weitwinkel ist schon aus", parser.decide(result("weitwinkel aus"), idle, 0.7, 1_000).reason())
+        assertEquals("Weitwinkel ist schon an", parser.decide(result("weitwinkel an"), idle.copy(wideAngle = true), 0.7, 1_000).reason())
+        assertTrue(parser.decide(result("weitwinkel an"), idle, 0.7, 1_000) is VoiceDecision.Execute)
+    }
+
+    @Test
     fun `stop has natural variants`() {
-        for (phrase in listOf("stopp", "aufnahme stopp", "aufnahme stoppen")) {
+        for (phrase in listOf("stopp", "aufnahme stopp", "aufnahme stoppen", "stoppen", "abbrechen")) {
             val d = VoiceCommandParser().decide(result(phrase), recording, 0.7, 1_000)
             assertTrue(phrase, d is VoiceDecision.Execute && d.command == VoiceCommand.STOP)
         }

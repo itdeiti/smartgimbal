@@ -5,13 +5,19 @@ enum class VoiceCommand(val label: String, vararg val phrases: String) {
     START_RECORDING("Aufnahme starten", "aufnahme starten"),
 
     // "Aufnahme stoppen" must be in the grammar: without it Vosk heard the closest phrase,
-    // "starten" (voice test 2026-11-22).
-    STOP("Stopp", "stopp", "aufnahme stopp", "aufnahme stoppen"),
+    // "starten" (voice test 2026-11-22). "stoppen" / "abbrechen" alone cancel the self-timer
+    // naturally; a lone "stoppen" was ignored in the photo test.
+    STOP("Stopp", "stopp", "aufnahme stopp", "aufnahme stoppen", "stoppen", "abbrechen"),
     TRACKING_ON("Tracking an", "tracking an"),
     TRACKING_OFF("Tracking aus", "tracking aus"),
 
     // "gimbal" is not in the German model's vocabulary, hence "kamera zurück" for Home.
     HOME("Kamera zurück", "kamera zurück"),
+
+    // "cheese" is not in the vocabulary either; a spoken "cheese" lands on "käse" (confirmed).
+    PHOTO("Käse – Foto in 3 s", "käse"),
+    WIDE_ON("Weitwinkel an", "weitwinkel an"),
+    WIDE_OFF("Weitwinkel aus", "weitwinkel aus"),
     ;
 
     companion object {
@@ -20,7 +26,14 @@ enum class VoiceCommand(val label: String, vararg val phrases: String) {
 }
 
 /** App state the commands are checked against. */
-data class VoiceContext(val recording: Boolean, val gimbalReady: Boolean, val trackingOn: Boolean)
+data class VoiceContext(
+    val recording: Boolean,
+    val gimbalReady: Boolean,
+    val trackingOn: Boolean,
+    val photoCountdown: Boolean = false,
+    val wideAngle: Boolean = false,
+    val frontCamera: Boolean = false,
+)
 
 sealed interface VoiceDecision {
     val text: String
@@ -64,8 +77,13 @@ class VoiceCommandParser(private val debounceMillis: Long = DEFAULT_DEBOUNCE_MS)
     }
 
     private fun notApplicable(command: VoiceCommand, c: VoiceContext): String? = when (command) {
-        VoiceCommand.START_RECORDING -> if (c.recording) "Aufnahme läuft schon" else null
-        VoiceCommand.STOP -> if (!c.recording) "keine Aufnahme" else null
+        VoiceCommand.START_RECORDING -> when {
+            c.recording -> "Aufnahme läuft schon"
+            c.photoCountdown -> "Selbstauslöser läuft schon"
+            else -> null
+        }
+        // Stop ends a recording or cancels the photo self-timer.
+        VoiceCommand.STOP -> if (!c.recording && !c.photoCountdown) "keine Aufnahme" else null
         VoiceCommand.TRACKING_ON -> when {
             !c.gimbalReady -> "kein Gimbal"
             c.trackingOn -> "Tracking ist schon an"
@@ -73,6 +91,17 @@ class VoiceCommandParser(private val debounceMillis: Long = DEFAULT_DEBOUNCE_MS)
         }
         VoiceCommand.TRACKING_OFF -> if (!c.trackingOn) "Tracking ist schon aus" else null
         VoiceCommand.HOME -> if (!c.gimbalReady) "kein Gimbal" else null
+        VoiceCommand.PHOTO -> when {
+            c.recording -> "Foto nur ohne Aufnahme"
+            c.photoCountdown -> "Selbstauslöser läuft schon"
+            else -> null
+        }
+        VoiceCommand.WIDE_ON -> when {
+            c.frontCamera -> "Frontkamera hat kein Weitwinkel"
+            c.wideAngle -> "Weitwinkel ist schon an"
+            else -> null
+        }
+        VoiceCommand.WIDE_OFF -> if (!c.wideAngle) "Weitwinkel ist schon aus" else null
     }
 
     private companion object {

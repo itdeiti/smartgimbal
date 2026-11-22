@@ -25,6 +25,15 @@ data class Fov(val longDeg: Double, val shortDeg: Double) {
         return if (width >= height) long to short else short to long
     }
 
+    /**
+     * Field of view at a zoom ratio of the logical camera (ratio < 1 is wider, e.g. 0.67 on the
+     * Pixel 7 switches to the ultrawide lens). Pinhole approximation; the ultrawide's lens
+     * correction makes the real FOV a bit different, which the tracker tolerates.
+     */
+    fun zoomed(ratio: Double): Fov = if (ratio == 1.0) this else Fov(scale(longDeg, ratio), scale(shortDeg, ratio))
+
+    private fun scale(deg: Double, ratio: Double) = Math.toDegrees(2 * atan(tan(Math.toRadians(deg / 2)) / ratio))
+
     companion object {
         /** Rough Pixel 7 main camera values, used until the real characteristics are read. */
         val DEFAULT = Fov(longDeg = 70.0, shortDeg = 55.0)
