@@ -54,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -147,6 +148,11 @@ private fun CameraContent(
             controller.unbind()
             grabber.release()
         }
+    }
+    // Voice: listen only while the camera screen is in the foreground.
+    LifecycleResumeEffect(Unit) {
+        vm.startListening()
+        onPauseOrDispose { vm.stopListening() }
     }
     // Feeds face detection with preview copies; skips frames while the detector is busy.
     LaunchedEffect(previewView, useFront) {

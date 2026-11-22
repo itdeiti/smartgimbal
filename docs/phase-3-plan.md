@@ -8,7 +8,7 @@ Stand: 2026-11-22, nach dem Merge von Phase 2 (`8da012a`).
 | --- | --- |
 | Erkenner | Vosk (`com.alphacephei:vosk-android:0.3.75`), vollständig offline |
 | Modell | `vosk-model-small-de-0.15` (46,5 MB Zip, 95,6 MB entpackt, Apache 2.0), wird in die APK gepackt |
-| Befehle | „Aufnahme starten", „Stopp", „Tracking an", „Tracking aus", „Gimbal zurück" |
+| Befehle | „Aufnahme starten", „Stopp", „Tracking an", „Tracking aus", „Kamera zurück" („Gimbal" steht nicht im Vokabular des Modells) |
 | Rückmeldung | kurze Vibration und Hinweis im Bild, kein Ton (der wäre sonst in der Tonspur) |
 
 ## Modell im Projekt
@@ -21,6 +21,8 @@ Stand: 2026-11-22, nach dem Merge von Phase 2 (`8da012a`).
 ## Der Knackpunkt: ein Mikrofon, zwei Abnehmer
 
 Während einer Aufnahme brauchen die Tonspur von CameraX und Vosk gleichzeitig das Mikrofon. Ab Android 10 gibt es dafür eine Priorität: Normalerweise bekommt nur ein Aufnehmer Ton, der andere Stille ([Sharing audio input](https://developer.android.com/media/platform/sharing-audio-input)). CameraX nutzt die Quelle `CAMCORDER`, die als datenschutzsensitiv gilt. Für zwei Aufnehmer in **derselben** App ist nichts dokumentiert, ein Entwickler berichtet, dass beide Ton bekommen ([CameraX-Gruppe](https://groups.google.com/a/android.com/g/camerax-developers/c/I3JWhRazjQs)).
+
+> **Spike-Ergebnis 2026-11-22: Weg A.** Vosk (eigenes `AudioRecord`, `VOICE_RECOGNITION`, `setPrivacySensitive(false)`) bekam während einer 4K-Aufnahme durchgehend Ton (−36 bis −58 dB). Die Tonspur des Videos hatte zur selben Zeit Inhalt (−34 bis −49 dB, Mono, 48 kHz, gemessen nach `afconvert`). Auf dem Pixel 7 mit Android 17 teilen sich beide das Mikrofon, Weg B entfällt.
 
 Deshalb zuerst ein **Spike am Gerät**:
 - Vosk mit eigenem `AudioRecord` (Quelle `VOICE_RECOGNITION`, 16 kHz mono) parallel zu einer CameraX-Aufnahme.
@@ -38,12 +40,13 @@ Das ist deutlich mehr Code, funktioniert aber unabhängig von der Mikrofon-Prior
 
 ## Erkennung
 
-- **Feste Grammatik:** `["aufnahme starten", "stopp", "tracking an", "tracking aus", "gimbal zurück", "[unk]"]`. Alles andere landet in `[unk]`. Das senkt Fehlauslöser und Rechenlast.
+- **Feste Grammatik:** `["aufnahme starten", "stopp", "tracking an", "tracking aus", "kamera zurück", "[unk]"]`. Alles andere landet in `[unk]`. Das senkt Fehlauslöser und Rechenlast.
+- **Nur ganze Befehle:** Vosk baut aus der Grammatik ein Bigramm-Modell und liefert auch einzelne Wörter wie „starten". Ein Befehl zählt nur, wenn der erkannte Text genau einem der Befehle entspricht.
 - **Konfidenz:** `setWords(true)` liefert eine Konfidenz pro Wort. Ein Befehl zählt nur, wenn jedes Wort mindestens den Schwellwert erreicht (Start 0,7, im Debug-Screen einstellbar).
 - **Zustand und Sperre:**
   - „Aufnahme starten" wirkt nur ohne laufende Aufnahme, „Stopp" nur während einer Aufnahme.
   - Derselbe Befehl wird 1,5 s lang nicht wiederholt ausgelöst.
-  - „Tracking an" und „Gimbal zurück" brauchen einen verbundenen Gimbal.
+  - „Tracking an" und „Kamera zurück" brauchen einen verbundenen Gimbal.
 - **Zuhören:** nur, solange der Kamera-Screen sichtbar ist und "Sprache" eingeschaltet ist. Android zeigt dann seinen Mikrofon-Hinweis.
 - **Log:** Pro Ergebnis landet eine `VOICE`-Zeile in logcat, mit Text, Konfidenz, Aktion oder Grund für das Ignorieren.
 

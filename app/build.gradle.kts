@@ -37,6 +37,17 @@ kotlin {
     jvmToolchain(17)
 }
 
+// The Vosk model is bundled into the APK but not kept in git (~95 MB); fail early with a hint.
+val checkVoskModel by tasks.registering {
+    val marker = layout.projectDirectory.file("src/main/assets/model-de/uuid").asFile
+    doLast {
+        if (!marker.exists()) {
+            throw GradleException("Vosk-Modell fehlt. Einmal ausführen: scripts/fetch-vosk-model.sh")
+        }
+    }
+}
+tasks.named("preBuild") { dependsOn(checkVoskModel) }
+
 dependencies {
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
@@ -54,6 +65,7 @@ dependencies {
     implementation(libs.androidx.camera.video)
     implementation(libs.androidx.camera.view)
     implementation(libs.mlkit.face.detection)
+    implementation(libs.vosk.android)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)

@@ -1,6 +1,9 @@
 package dev.smartgimbal
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Application
+import android.content.pm.PackageManager
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -14,7 +17,13 @@ import dev.smartgimbal.tracking.Fov
 import dev.smartgimbal.tracking.NormBox
 import dev.smartgimbal.tracking.TrackingOutput
 import dev.smartgimbal.tracking.TrackingSettings
+import dev.smartgimbal.voice.MicCapture
+import dev.smartgimbal.voice.VoiceEngine
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
@@ -44,8 +53,40 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
     private val tracker = FaceTracker()
     private var lastLearnedLimits: Pair<Double?, Double?> = null to null
 
+    // Phase 3: own microphone stream feeding Vosk.
+    val mic = MicCapture()
+    val voice = VoiceEngine(app, VOICE_GRAMMAR) { json -> Log.d(GimbalSession.LOG_TAG, "VOICE result ${json.replace('\n', ' ')}") }
+    private var levelLogger: Job? = null
+
     init {
         faces.frameListener = ::onFaceFrame
+        mic.addConsumer(voice)
+        voice.load()
+    }
+
+    /** Called while the camera screen is in the foreground. */
+    @SuppressLint("MissingPermission") // checked right here
+    fun startListening() {
+        val ctx = getApplication<Application>()
+        if (ctx.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Log.d(GimbalSession.LOG_TAG, "VOICE no microphone permission")
+            return
+        }
+        mic.start()
+        levelLogger?.cancel()
+        levelLogger = viewModelScope.launch {
+            while (isActive) {
+                delay(1_000)
+                Log.d(GimbalSession.LOG_TAG, "VOICE rms=%.1f dB".format(Locale.ROOT, mic.lastRmsDb))
+            }
+        }
+        Log.d(GimbalSession.LOG_TAG, "VOICE listening")
+    }
+
+    fun stopListening() {
+        levelLogger?.cancel()
+        mic.stop()
+        Log.d(GimbalSession.LOG_TAG, "VOICE stopped")
     }
 
     /** Called by the camera screen whenever the active camera changes. */
@@ -106,8 +147,15 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        stopListening()
+        voice.close()
         faces.frameListener = null
         session.close()
         faces.close()
+    }
+
+    private companion object {
+        // "gimbal" is not in the German model's vocabulary, hence "kamera zurück" for Home.
+        val VOICE_GRAMMAR = listOf("aufnahme starten", "stopp", "tracking an", "tracking aus", "kamera zurück")
     }
 }
