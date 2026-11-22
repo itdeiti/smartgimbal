@@ -40,10 +40,10 @@ Die Gimbal-Daten stammen aus den Mitschnitten von Phase 1: Die Geschwindigkeit l
 1. **Fehler bestimmen:** Gesichtsmitte relativ zur Bildmitte, normiert auf −1…1. Mit dem Bildwinkel der Kamera (aus `CameraCharacteristics`) wird daraus ein Winkelfehler in Grad.
 2. **Glätten:** EMA auf die Gesichtsposition, damit Detektionsrauschen den Gimbal nicht zittern lässt.
 3. **Totzone:** 3° um die Mitte, innerhalb davon kein Nachregeln.
-4. **PD-Regler pro Achse:** Er rechnet Grad Abweichung in °/s Sollgeschwindigkeit um und dann in Joystick-Einheiten (÷ 0,22). Startwert Kp ≈ 2/s, damit ist die Hälfte des Fehlers nach etwa 0,35 s weg.
+4. **PD-Regler pro Achse:** Er rechnet Grad Abweichung in °/s Sollgeschwindigkeit um und dann in Joystick-Einheiten (÷ 0,22). Startwert war Kp 2/s. **Tuning 2026-11-22:** Der Gimbal glättet Geschwindigkeitswechsel selbst (τ ≈ 0,25 s), dazu kommen ~140 ms Analyse-Latenz. Mit Kp 2 schoss er nach Sprüngen um 30 bis 40 % über. Gewählt sind jetzt **Kp 1,4 und Kd 0,3**, abgestimmt in der Simulation mit diesem Gimbal-Modell. Live-Gegentest: 0 bis 1 % Überschwingen, eingeregelt nach etwa 1,2 s, beim Gehen 8 bis 11° Rückstand.
 5. **Begrenzen:** maximal ±250 Einheiten (linearer Bereich, kein Nachlaufen) und eine Rampe gegen ruckartige Starts.
 6. **Pan-Wrap:** Die Telemetrie meldet Pan im Bereich ±180° und springt an der Grenze (gemessen: +164,98°, dann −176,22°). Jede Winkeldifferenz auf Pan wird deshalb auf −180…+180 normiert.
-7. **Tilt-Anschläge:** Die Telemetrie meldet etwa +27° und −32°. Nahe am Anschlag wird nicht weiter in diese Richtung gedrückt.
+7. **Tilt-Anschläge:** Ein weicher Anschlag bremst in den letzten 8°. Der echte Anschlag oben lag live bei 25 bis 27°, nicht bei den angenommenen 30°. Deshalb gibt es eine Blockier-Erkennung: Bewegt sich der Tilt trotz Befehl 1,5 s lang nicht, wird diese Stelle als Anschlag gelernt.
 8. **Gesicht verloren:** Sofort Ausgabe 0, Position halten. Kommt das Gesicht nach 1 s nicht zurück, wird das größte neue Gesicht zum Ziel.
 9. **Vorrang beim Senden:** Die bestehende 20-Hz-Schleife sendet das Steuerkreuz vor dem Tracker, den Tracker nur, wenn er aktiv ist. Ist die Tracker-Ausgabe älter als 300 ms, wird gestoppt.
 

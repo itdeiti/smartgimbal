@@ -42,6 +42,7 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
     @Volatile private var camera = CameraSetup(front = false, fov = Fov.DEFAULT)
     @Volatile private var resetTracker = false
     private val tracker = FaceTracker()
+    private var lastLearnedLimits: Pair<Double?, Double?> = null to null
 
     init {
         faces.frameListener = ::onFaceFrame
@@ -90,6 +91,10 @@ class GimbalViewModel(app: Application) : AndroidViewModel(app) {
         )
         session.setTrackerCommand(output.command)
         _trackingOutput.value = output
+        if (tracker.learnedTiltLimits != lastLearnedLimits) {
+            lastLearnedLimits = tracker.learnedTiltLimits
+            Log.d(GimbalSession.LOG_TAG, "TILT end stops learned up=${lastLearnedLimits.first} down=${lastLearnedLimits.second}")
+        }
         Log.d(
             GimbalSession.LOG_TAG,
             "TRACK errPan=%.2f errTilt=%.2f cmdPan=%d cmdTilt=%d tilt=%s".format(

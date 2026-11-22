@@ -7,9 +7,11 @@ import org.junit.Test
 import kotlin.math.abs
 
 /**
- * Closed-loop tests against a simulated gimbal, built from the phase 1 measurements:
- * speed = 0.22 deg/s per unit, saturating at 60 deg/s; detection latency 60 ms at 30 fps;
- * the 20 Hz send loop plus 30 ms transmission.
+ * Closed-loop tests against a simulated gimbal, built from measurements on the device:
+ * speed = 0.22 deg/s per unit, saturating at 60 deg/s, smoothed by the gimbal itself with
+ * tau ~0.25 s (tuning run 2026-11-22); preview-copy analysis every ~45 ms with ~140 ms latency;
+ * the 20 Hz send loop plus 30 ms transmission. With this plant the old Kp 2 / Kd 0 overshoots
+ * by 30-40 %, exactly as seen live.
  *
  * Camera geometry, confirmed by the first live test: operator terms are seen from the display
  * side, so pan right turns both cameras towards their own left, and tilt up points the front
@@ -33,6 +35,9 @@ class FaceTrackerSimulationTest {
         val totalMs = (seconds * 1000).toInt()
         var pan = 0.0
         var tilt = 0.0
+        var panVel = 0.0
+        var tiltVel = 0.0
+        val smoothing = 1 - kotlin.math.exp(-0.001 / GIMBAL_TAU_SEC)
         var latest = MoveCommand.STOP
         var applied = MoveCommand.STOP
         val frames = ArrayDeque<Pair<Int, NormBox>>()
@@ -49,12 +54,12 @@ class FaceTrackerSimulationTest {
             panErr[ms] = rightDeg
             tiltErr[ms] = upDeg
 
-            if (ms % 33 == 0) {
+            if (ms % FRAME_PERIOD_MS == 0) {
                 // Portrait analysis frame 480 x 640: horizontal FOV is the short side.
                 val cx = 0.5 + Fov.offsetForAngle(rightDeg, fov.shortDeg) / 2
                 val cy = 0.5 - Fov.offsetForAngle(upDeg, fov.longDeg) / 2
                 val box = NormBox((cx - 0.1).toFloat(), (cy - 0.1).toFloat(), (cx + 0.1).toFloat(), (cy + 0.1).toFloat())
-                frames.addLast(ms + 60 to box)
+                frames.addLast(ms + DETECTION_LATENCY_MS to box)
             }
             while (frames.isNotEmpty() && frames.first().first <= ms) {
                 val box = frames.removeFirst().second
@@ -64,13 +69,34 @@ class FaceTrackerSimulationTest {
             if (ms % 50 == 0) sends.addLast(ms + 30 to latest)
             while (sends.isNotEmpty() && sends.first().first <= ms) applied = sends.removeFirst().second
 
-            pan += gimbalSpeed(applied.panRight) / 1000.0
-            tilt += gimbalSpeed(applied.tiltUp) / 1000.0
+            panVel += (gimbalSpeed(applied.panRight) - panVel) * smoothing
+            tiltVel += (gimbalSpeed(applied.tiltUp) - tiltVel) * smoothing
+            pan += panVel / 1000.0
+            tilt += tiltVel / 1000.0
         }
         return Sim(panErr, tiltErr, commands, tilt)
     }
 
     private fun gimbalSpeed(units: Int) = (units * DEG_PER_SEC_PER_UNIT).coerceIn(-60.0, 60.0)
+
+    @Test
+    fun `blocked tilt is learned as end stop`() {
+        // Tuning run: tilt stuck at 26.9 deg while the tracker kept commanding up.
+        val tracker = FaceTracker()
+        val above = NormBox(0.4f, 0.05f, 0.6f, 0.25f) // face well above centre
+        var cmd = MoveCommand.STOP
+        for (i in 0 until 90) { // ~3 s of frames, telemetry frozen at the stop
+            cmd = tracker.update(above, 480, 640, fov, true, 26.9, 1_000L + i * 33, TrackingParams()).command
+        }
+        assertEquals("tilt stops pushing", 0, cmd.tiltUp)
+        assertEquals(26.4, tracker.learnedTiltLimits.first!!, 1e-9)
+    }
+
+    private companion object {
+        const val GIMBAL_TAU_SEC = 0.25
+        const val DETECTION_LATENCY_MS = 140
+        const val FRAME_PERIOD_MS = 45
+    }
 
     /** Largest error with the opposite sign of the initial error, i.e. overshoot. */
     private fun overshoot(errors: DoubleArray): Double {
@@ -87,6 +113,13 @@ class FaceTrackerSimulationTest {
         assertTrue("tilt settles", sim.tiltError.tailFrom(2.0).all { abs(it) < 3.0 })
         assertTrue("pan overshoot ${overshoot(sim.panError)}", overshoot(sim.panError) < 1.0)
         assertTrue("tilt overshoot ${overshoot(sim.tiltError)}", overshoot(sim.tiltError) < 1.0)
+    }
+
+    @Test
+    fun `old gains overshoot like in the tuning run`() {
+        val old = TrackingParams(kp = 2.0f, kd = 0.0f)
+        val sim = simulate(front = false, seconds = 4.0, params = old, faceRight = { 20.0 }, faceUp = { 0.0 })
+        assertTrue("overshoot ${overshoot(sim.panError)}", overshoot(sim.panError) > 5.0)
     }
 
     @Test
@@ -145,10 +178,11 @@ class FaceTrackerSimulationTest {
 
     @Test
     fun `walking face is followed with bounded lag`() {
-        // Person walks across at 20 deg/s; P control trails by about speed / kp = 10 deg.
+        // Person walks across at 20 deg/s; the damped controller trails by ~15 deg, well inside
+        // the 22 deg half field of view of the portrait preview.
         val sim = simulate(front = false, seconds = 5.0, faceRight = { 20.0 * it }, faceUp = { 0.0 })
         val worst = sim.panError.tailFrom(2.0).maxOf { abs(it) }
-        assertTrue("lag $worst deg", worst < 12.0)
+        assertTrue("lag $worst deg", worst < 18.0)
     }
 
     @Test
