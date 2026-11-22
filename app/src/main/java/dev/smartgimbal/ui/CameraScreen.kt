@@ -4,7 +4,13 @@ import android.bluetooth.BluetoothAdapter
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.util.Size
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
+import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
@@ -47,11 +53,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.smartgimbal.ble.LinkState
 import dev.smartgimbal.gimbal.CommandSource
 import dev.smartgimbal.gimbal.GimbalSession
+import dev.smartgimbal.tracking.FacePipeline
 
 /** Main screen: full-screen camera preview with gimbal status and controls on top. */
 @Composable
 fun CameraScreen(
     session: GimbalSession,
+    faces: FacePipeline,
     useFrontCamera: Boolean,
     onToggleCamera: () -> Unit,
     onOpenDebug: () -> Unit,
@@ -63,7 +71,7 @@ fun CameraScreen(
     ) { granted = context.hasAll(REQUIRED_PERMISSIONS) }
 
     if (granted) {
-        CameraContent(session, useFrontCamera, onToggleCamera, onOpenDebug)
+        CameraContent(session, faces, useFrontCamera, onToggleCamera, onOpenDebug)
     } else {
         PermissionGate(onRequest = { launcher.launch(REQUIRED_PERMISSIONS + OPTIONAL_PERMISSIONS) })
     }
@@ -90,6 +98,7 @@ private fun PermissionGate(onRequest: () -> Unit) {
 @Composable
 private fun CameraContent(
     session: GimbalSession,
+    faces: FacePipeline,
     useFront: Boolean,
     onToggleCamera: () -> Unit,
     onOpenDebug: () -> Unit,
@@ -97,17 +106,37 @@ private fun CameraContent(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Preview only for now; analysis (step 3) and video capture (step 5) are enabled later.
-    val controller = remember { LifecycleCameraController(context).apply { setEnabledUseCases(0) } }
+    val frame by faces.frame.collectAsStateWithLifecycle()
+    val stats by faces.stats.collectAsStateWithLifecycle()
+    var previewView by remember { mutableStateOf<PreviewView?>(null) }
+
+    // Preview + analysis; video capture is added in step 5.
+    val controller = remember {
+        LifecycleCameraController(context).apply {
+            setEnabledUseCases(CameraController.IMAGE_ANALYSIS)
+            imageAnalysisBackpressureStrategy = ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
+            imageAnalysisResolutionSelector = ResolutionSelector.Builder()
+                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                .setResolutionStrategy(
+                    ResolutionStrategy(Size(640, 480), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER),
+                )
+                .build()
+        }
+    }
 
     DisposableEffect(lifecycleOwner) {
+        controller.setImageAnalysisAnalyzer(faces.executor, faces.analyzer)
         controller.bindToLifecycle(lifecycleOwner)
         // Leaving the screen (e.g. to debug) releases the camera.
-        onDispose { controller.unbind() }
+        onDispose {
+            controller.clearImageAnalysisAnalyzer()
+            controller.unbind()
+        }
     }
     LaunchedEffect(useFront) {
         controller.cameraSelector =
             if (useFront) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+        faces.reset()
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -115,10 +144,34 @@ private fun CameraContent(
             factory = { ctx ->
                 PreviewView(ctx).apply {
                     scaleType = PreviewView.ScaleType.FILL_CENTER
+                    // The overlay needs PreviewView.outputTransform, which requires COMPATIBLE mode.
+                    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                     this.controller = controller
+                    previewView = this
                 }
             },
             modifier = Modifier.fillMaxSize(),
+        )
+
+        FaceOverlay(frame = frame, previewView = previewView, modifier = Modifier.fillMaxSize())
+
+        Text(
+            text = "%d %s · %s %.0f ms · %.0f fps".format(
+                frame?.faces?.size ?: 0,
+                if ((frame?.faces?.size ?: 0) == 1) "Gesicht" else "Gesichter",
+                stats.detectorName,
+                stats.avgMillis,
+                stats.fps,
+            ),
+            color = Color.White,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .systemBarsPadding()
+                .padding(start = 16.dp, bottom = 128.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color.Black.copy(alpha = 0.5f))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
         )
 
         Row(

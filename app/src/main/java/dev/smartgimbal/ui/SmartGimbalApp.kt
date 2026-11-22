@@ -20,6 +20,7 @@ fun SmartGimbalApp(vm: GimbalViewModel = viewModel()) {
     when (screen) {
         Screen.CAMERA -> CameraScreen(
             session = vm.session,
+            faces = vm.faces,
             useFrontCamera = useFrontCamera,
             onToggleCamera = { useFrontCamera = !useFrontCamera },
             onOpenDebug = { screen = Screen.DEBUG },
