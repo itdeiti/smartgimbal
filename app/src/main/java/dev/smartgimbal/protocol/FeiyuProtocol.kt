@@ -21,7 +21,9 @@ object FeiyuProtocol {
     /** Advertised name looks like `FY_PocketV_BA`. */
     const val DEVICE_NAME_PREFIX = "FY_PocketV"
 
-    private val HEADER = byteArrayOf(0xA5.toByte(), 0x5A)
+    internal const val HEADER_0 = 0xA5.toByte()
+    internal const val HEADER_1 = 0x5A.toByte()
+    private val HEADER = byteArrayOf(HEADER_0, HEADER_1)
 
     /** Body of command 0x0E (joystick) without the X/Y values. Bytes 5..9 are not understood yet. */
     private val JOYSTICK_PREFIX = parseHex("03 00 0E 00 00 05 00 00")

@@ -1,13 +1,11 @@
 package dev.smartgimbal.ui
 
-import android.bluetooth.BluetoothAdapter
-import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.content.res.Configuration
 import android.os.PowerManager
-import android.util.Log
 import android.util.Range
+import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.DynamicRange
 import androidx.camera.core.ImageCapture
@@ -25,6 +23,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -55,19 +54,27 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.smartgimbal.ble.LinkState
 import dev.smartgimbal.gimbal.CommandSource
+import dev.smartgimbal.AppLog
 import dev.smartgimbal.GimbalViewModel
+import dev.smartgimbal.OPTIONAL_PERMISSIONS
+import dev.smartgimbal.REQUIRED_PERMISSIONS
+import dev.smartgimbal.hasAll
+import dev.smartgimbal.tracking.FacePipeline
 import dev.smartgimbal.camera.PhotoTaker
 import dev.smartgimbal.camera.ZoomLevel
 import dev.smartgimbal.camera.PreviewFrameGrabber
@@ -133,8 +140,6 @@ private fun CameraContent(
     val voiceFeedback by vm.voice.feedback.collectAsStateWithLifecycle()
     val gimbalState by session.client.state.collectAsStateWithLifecycle()
 
-    val frame by faces.frame.collectAsStateWithLifecycle()
-    val stats by faces.stats.collectAsStateWithLifecycle()
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     val recorder = remember { VideoRecorder(context) }
     val rec by recorder.state.collectAsStateWithLifecycle()
@@ -198,12 +203,15 @@ private fun CameraContent(
         vm.setZoomRatio(ratio.toDouble(), max)
     }
     // Feeds face detection with preview copies; skips frames while the detector is busy.
-    LaunchedEffect(previewView, useFront) {
+    // Only while resumed: in the background there is no fresh preview to analyse.
+    LaunchedEffect(previewView, useFront, lifecycleOwner) {
         val view = previewView ?: return@LaunchedEffect
-        while (isActive) {
-            delay(GRAB_INTERVAL_MS)
-            // The preview of the front camera is mirrored; the tracker un-mirrors it.
-            grabber.grab(view, mirrored = useFront)
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (isActive) {
+                delay(GRAB_INTERVAL_MS)
+                // The preview of the front camera is mirrored; the tracker un-mirrors it.
+                grabber.grab(view, mirrored = useFront)
+            }
         }
     }
     LaunchedEffect(useFront) {
@@ -232,27 +240,13 @@ private fun CameraContent(
             modifier = Modifier.fillMaxSize(),
         )
 
-        FaceOverlay(frame = frame, showCenter = trackingEnabled, modifier = Modifier.fillMaxSize())
+        FaceLayer(faces, showCenter = trackingEnabled)
         photoState.countdown?.let { CountdownOverlay(it) }
       }
 
-        Text(
-            text = "%d %s · %s %.0f ms · %.0f fps".format(
-                frame?.faces?.size ?: 0,
-                if ((frame?.faces?.size ?: 0) == 1) "Gesicht" else "Gesichter",
-                stats.detectorName,
-                stats.avgMillis,
-                stats.fps,
-            ),
-            color = Color.White,
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .systemBarsPadding()
-                .padding(start = 16.dp, bottom = 128.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(Color.Black.copy(alpha = 0.5f))
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+        StatsLabel(
+            faces,
+            Modifier.align(Alignment.BottomStart).systemBarsPadding().padding(start = 16.dp, bottom = 128.dp),
         )
 
         // Leaving the screen would release the camera and cut the recording or the self-timer.
@@ -277,59 +271,32 @@ private fun CameraContent(
         }
 
         voiceFeedback?.let { note ->
-            LaunchedEffect(note) {
-                delay(2_500)
-                vm.voice.clearFeedback()
-            }
-            Text(
-                note,
-                color = Color.White,
+            TimedNote(
+                text = note,
+                visibleMillis = 2_500,
+                onTimeout = vm.voice::clearFeedback,
+                modifier = Modifier.align(Alignment.TopCenter).systemBarsPadding().padding(top = 72.dp),
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .systemBarsPadding()
-                    .padding(top = 72.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF1565C0).copy(alpha = 0.85f))
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                background = Color(0xFF1565C0).copy(alpha = 0.85f),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
             )
         }
 
         photoState.message?.let { message ->
-            LaunchedEffect(message) {
-                delay(3_000)
-                photo.clearMessage()
-            }
-            Text(
-                message,
-                color = Color.White,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .systemBarsPadding()
-                    .padding(bottom = 168.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.Black.copy(alpha = 0.7f))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            TimedNote(
+                text = message,
+                visibleMillis = 3_000,
+                onTimeout = photo::clearMessage,
+                modifier = Modifier.align(Alignment.BottomCenter).systemBarsPadding().padding(bottom = 168.dp),
             )
         }
 
         rec.message?.let { message ->
-            LaunchedEffect(message) {
-                delay(4_000)
-                recorder.clearMessage()
-            }
-            Text(
-                message,
-                color = Color.White,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .systemBarsPadding()
-                    .padding(bottom = 128.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.Black.copy(alpha = 0.7f))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            TimedNote(
+                text = message,
+                visibleMillis = 4_000,
+                onTimeout = recorder::clearMessage,
+                modifier = Modifier.align(Alignment.BottomCenter).systemBarsPadding().padding(bottom = 128.dp),
             )
         }
 
@@ -362,22 +329,20 @@ private fun CameraContent(
 }
 
 /**
- * Gimbal status that doubles as connect button: tapping it while disconnected scans and connects
- * to the first gimbal found.
+ * Gimbal status that doubles as connect button: tapping it while disconnected scans and connects,
+ * tapping it while connecting cancels.
  */
 @Composable
 private fun GimbalChip(session: GimbalSession, onOpenDebug: () -> Unit) {
     val state by session.client.state.collectAsStateWithLifecycle()
     val name by session.client.connectedName.collectAsStateWithLifecycle()
     val source by session.activeSource.collectAsStateWithLifecycle()
-    val enableBtLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { if (session.client.isBluetoothEnabled) session.client.startScan(autoConnect = true) }
+    val scanAndConnect = rememberScanAction(session.client, autoConnect = true)
 
     val label = when (state) {
         LinkState.IDLE -> "Gimbal verbinden"
         LinkState.SCANNING -> "Suche Gimbal …"
-        LinkState.CONNECTING, LinkState.DISCOVERING -> "Verbinde …"
+        LinkState.CONNECTING, LinkState.DISCOVERING -> "Verbinde … ✕"
         LinkState.READY -> buildString {
             append("● ").append(name ?: "Gimbal")
             when (source) {
@@ -388,18 +353,11 @@ private fun GimbalChip(session: GimbalSession, onOpenDebug: () -> Unit) {
         }
     }
     val onClick: () -> Unit = when (state) {
-        LinkState.IDLE -> {
-            {
-                if (session.client.isBluetoothEnabled) {
-                    session.client.startScan(autoConnect = true)
-                } else {
-                    enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
-                }
-            }
-        }
+        LinkState.IDLE -> scanAndConnect
         LinkState.SCANNING -> session.client::stopScan
         LinkState.READY -> onOpenDebug
-        else -> { {} }
+        // Tapping while connecting cancels the attempt.
+        LinkState.CONNECTING, LinkState.DISCOVERING -> session.client::disconnect
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         OverlayButton(label, onClick = onClick)
@@ -427,18 +385,76 @@ private fun OverlayButton(text: String, onClick: () -> Unit, enabled: Boolean = 
 /** Up to 30 copies per second (skipped while the detector is busy); each costs ~3 ms on the main thread. */
 private const val GRAB_INTERVAL_MS = 33L
 
-/** Logs which video qualities the bound camera offers, to see why 4K may fall back. */
-private suspend fun logVideoCapabilities(controller: LifecycleCameraController) {
-    // cameraInfo is only available once the controller has bound the camera.
-    repeat(20) {
-        val info = controller.cameraInfo
-        if (info != null) {
-            val qualities = Recorder.getVideoCapabilities(info).getSupportedQualities(DynamicRange.SDR)
-            Log.d(GimbalSession.LOG_TAG, "VIDEO supported=$qualities")
-            return
-        }
+/** Face boxes over the preview. Reads the frame here, so a new frame redraws only this layer. */
+@Composable
+private fun FaceLayer(faces: FacePipeline, showCenter: Boolean) {
+    val frame by faces.frame.collectAsStateWithLifecycle()
+    FaceOverlay(frame = frame, showCenter = showCenter, modifier = Modifier.fillMaxSize())
+}
+
+/** Face count and detector timing; reads the per-frame state itself, like [FaceLayer]. */
+@Composable
+private fun StatsLabel(faces: FacePipeline, modifier: Modifier = Modifier) {
+    val frame by faces.frame.collectAsStateWithLifecycle()
+    val stats by faces.stats.collectAsStateWithLifecycle()
+    val count = frame?.faces?.size ?: 0
+    Text(
+        text = "%d %s · %s %.0f ms · %.0f fps".format(
+            count,
+            if (count == 1) "Gesicht" else "Gesichter",
+            stats.detectorName,
+            stats.avgMillis,
+            stats.fps,
+        ),
+        color = Color.White,
+        style = MaterialTheme.typography.labelSmall,
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color.Black.copy(alpha = 0.5f))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
+}
+
+/** Short note in a pill that asks to be cleared after [visibleMillis]. */
+@Composable
+private fun TimedNote(
+    text: String,
+    visibleMillis: Long,
+    onTimeout: () -> Unit,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodyMedium,
+    background: Color = Color.Black.copy(alpha = 0.7f),
+    contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+) {
+    LaunchedEffect(text) {
+        delay(visibleMillis)
+        onTimeout()
+    }
+    Text(
+        text,
+        color = Color.White,
+        style = style,
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(background)
+            .padding(contentPadding),
+    )
+}
+
+/** The controller's camera info, which only exists once the camera is bound; null after 3 s. */
+private suspend fun LifecycleCameraController.awaitCameraInfo(): CameraInfo? {
+    repeat(30) {
+        cameraInfo?.let { return it }
         delay(100)
     }
+    return null
+}
+
+/** Logs which video qualities the bound camera offers, to see why 4K may fall back. */
+private suspend fun logVideoCapabilities(controller: LifecycleCameraController) {
+    val info = controller.awaitCameraInfo() ?: return
+    val qualities = Recorder.getVideoCapabilities(info).getSupportedQualities(DynamicRange.SDR)
+    AppLog.d { "VIDEO supported=$qualities" }
 }
 
 /** Voice control on/off, with the model and permission state in the label. */
@@ -486,16 +502,10 @@ private fun BoxScope.CountdownOverlay(seconds: Int) {
  * Returns the ratio actually used and the camera's maximum.
  */
 private suspend fun applyZoom(controller: LifecycleCameraController, level: ZoomLevel): Pair<Float, Float> {
-    repeat(30) {
-        val zoom = controller.cameraInfo?.zoomState?.value
-        if (zoom != null) {
-            val ratio = (level.ratio ?: zoom.minZoomRatio).coerceIn(zoom.minZoomRatio, zoom.maxZoomRatio)
-            controller.setZoomRatio(ratio)
-            return ratio to zoom.maxZoomRatio
-        }
-        delay(100)
-    }
-    return 1f to 1f
+    val zoom = controller.awaitCameraInfo()?.zoomState?.value ?: return 1f to 1f
+    val ratio = (level.ratio ?: zoom.minZoomRatio).coerceIn(zoom.minZoomRatio, zoom.maxZoomRatio)
+    controller.setZoomRatio(ratio)
+    return ratio to zoom.maxZoomRatio
 }
 
 /** Red dot to start; while recording a smaller red square to stop. */

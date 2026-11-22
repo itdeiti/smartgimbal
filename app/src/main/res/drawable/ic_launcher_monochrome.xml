@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A tracked person inside a focus frame, on a gimbal handle. Single-colour version for themed icons;
+     everything sits inside the adaptive icon's 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M34,37V32a4,4 0 0 1 4,-4H43M65,28H70a4,4 0 0 1 4,4V37M74,59V64a4,4 0 0 1 -4,4H65M43,68H38a4,4 0 0 1 -4,-4V59"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeWidth="4" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,43m-6,0a6,6 0 1 1 12,0a6,6 0 1 1 -12,0M43,60A11,10 0 0 1 65,60Z" />
+    <path
+        android:fillAlpha="1"
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,72a3.5,3.5 0 0 1 3.5,3.5v4a3.5,3.5 0 0 1 -7,0v-4a3.5,3.5 0 0 1 3.5,-3.5Z" />
+</vector>

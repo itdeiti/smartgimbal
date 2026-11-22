@@ -1,27 +1,22 @@
 package dev.smartgimbal.camera
 
-import android.Manifest
 import android.annotation.SuppressLint
-import android.content.ContentValues
 import android.content.Context
-import android.content.pm.PackageManager
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.PowerManager
 import android.provider.MediaStore
-import android.util.Log
 import androidx.camera.video.MediaStoreOutputOptions
 import androidx.camera.video.Recording
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.CameraController
 import androidx.camera.view.video.AudioConfig
-import dev.smartgimbal.gimbal.GimbalSession
+import dev.smartgimbal.AppLog
+import dev.smartgimbal.hasMicPermission
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -59,16 +54,12 @@ class VideoRecorder(private val context: Context) {
     @SuppressLint("MissingPermission") // audio is only enabled after the permission check below
     fun start(controller: CameraController) {
         if (recording != null) return
-        val name = "SmartGimbal_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(Date())
-        val values = ContentValues().apply {
-            put(MediaStore.Video.Media.DISPLAY_NAME, name)
-            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-            put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/SmartGimbal")
-        }
+        val name = newMediaName()
+        val values = mediaValues(name, "video/mp4", "Movies/SmartGimbal")
         val output = MediaStoreOutputOptions.Builder(context.contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
             .setContentValues(values)
             .build()
-        val withAudio = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val withAudio = context.hasMicPermission
         recording = try {
             controller.startRecording(output, AudioConfig.create(withAudio), context.mainExecutor, ::onEvent)
         } catch (e: Exception) {
@@ -137,7 +128,7 @@ class VideoRecorder(private val context: Context) {
 
     fun clearMessage() = _state.update { it.copy(message = null) }
 
-    private fun log(text: String) = Log.d(GimbalSession.LOG_TAG, text)
+    private fun log(text: String) = AppLog.d { text }
 
     private companion object {
         const val THERMAL_LOG_INTERVAL_MS = 5_000L
