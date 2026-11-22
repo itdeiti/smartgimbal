@@ -15,8 +15,15 @@ private enum class Screen { CAMERA, DEBUG }
 @Composable
 fun SmartGimbalApp(vm: GimbalViewModel = viewModel()) {
     var screen by rememberSaveable { mutableStateOf(Screen.CAMERA) }
+    // Kept here, outside the camera screen, so the choice survives a trip to the debug screen.
+    var useFrontCamera by rememberSaveable { mutableStateOf(false) }
     when (screen) {
-        Screen.CAMERA -> CameraScreen(session = vm.session, onOpenDebug = { screen = Screen.DEBUG })
+        Screen.CAMERA -> CameraScreen(
+            session = vm.session,
+            useFrontCamera = useFrontCamera,
+            onToggleCamera = { useFrontCamera = !useFrontCamera },
+            onOpenDebug = { screen = Screen.DEBUG },
+        )
         Screen.DEBUG -> {
             BackHandler { screen = Screen.CAMERA }
             DebugScreen(session = vm.session, onBack = { screen = Screen.CAMERA })
